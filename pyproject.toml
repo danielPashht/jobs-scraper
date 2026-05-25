@@ -1,0 +1,45 @@
+[project]
+name = "jobs-scraper"
+version = "0.1.0"
+description = "Scrape web3/fintech job boards for SDET/QA roles"
+requires-python = ">=3.11"
+dependencies = [
+    "httpx>=0.27",
+    "beautifulsoup4>=4.12",
+    "pydantic>=2.6",
+    "rich>=13.7",
+    "python-telegram-bot[job-queue]>=21.6",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.4",
+]
+cf = [
+    # For Cloudflare-protected boards (cryptojobslist). Browsers are reused from
+    # ~/Library/Caches/ms-playwright (set PLAYWRIGHT_BROWSERS_PATH if it differs).
+    "playwright>=1.55",
+    "tf-playwright-stealth>=1.2",
+]
+
+[project.scripts]
+jobs-scraper = "scraper.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["scraper*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
