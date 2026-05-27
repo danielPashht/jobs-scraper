@@ -8,9 +8,9 @@ from scraper.filters import (
     deduplicate,
     filter_jobs,
     is_apac_friendly,
+    is_eligible,
     is_junk_title,
     is_recent,
-    is_us_only,
     rank,
 )
 from scraper.models import Job
@@ -104,53 +104,62 @@ def test_keyword_match_param(title: str, expected: bool):
     assert bool(out) is expected
 
 
-# --- US-only heuristic ---
+# --- Location eligibility (Asia-based nomad, open to Europe) ---
 
-def test_us_only_flags_us_location_without_global_marker():
-    j = make_job(
-        title="QA Engineer",
-        tags=["quality assurance", "remote"],
-        locations=["San Francisco", "CA", "United States"],
-    )
-    assert is_us_only(j) is True
+def test_ineligible_us_country_name():
+    j = make_job(tags=["quality assurance"], locations=["New York, United States"])
+    assert is_eligible(j) is False
 
 
-def test_us_only_skipped_when_global_marker_in_title():
-    j = make_job(
-        title="QA Lead 100% remote Worldwide",
-        tags=["quality assurance", "remote"],
-        locations=["United States"],
-    )
-    assert is_us_only(j) is False
+def test_ineligible_us_state_code():
+    # The LinkedIn "City, ST" form must be caught even without "United States".
+    j = make_job(tags=["quality assurance"], locations=["San Francisco, CA"])
+    assert is_eligible(j) is False
 
 
-def test_us_only_skipped_when_other_country_also_listed():
-    j = make_job(
-        title="QA Engineer",
-        tags=["quality assurance", "remote"],
-        locations=["United States", "Germany"],
-    )
-    assert is_us_only(j) is False
+def test_ineligible_other_americas():
+    j = make_job(tags=["quality assurance"], locations=["São Paulo, Brazil"])
+    assert is_eligible(j) is False
 
 
-def test_us_only_skipped_when_no_us_at_all():
-    j = make_job(
-        title="QA Engineer",
-        tags=["quality assurance", "remote"],
-        locations=["Singapore"],
-    )
-    assert is_us_only(j) is False
+def test_eligible_worldwide_marker_overrides_us_location():
+    j = make_job(title="QA Lead 100% remote Worldwide", locations=["United States"])
+    assert is_eligible(j) is True
 
 
-def test_filter_jobs_excludes_us_only():
+def test_eligible_european_relocation():
+    j = make_job(tags=["quality assurance"], locations=["Berlin, Germany"])
+    assert is_eligible(j) is True
+
+
+def test_eligible_apac():
+    j = make_job(tags=["quality assurance"], locations=["Singapore"])
+    assert is_eligible(j) is True
+
+
+def test_eligible_ambiguous_location_kept():
+    # No region signal either way → keep, so we don't miss good jobs.
+    j = make_job(tags=["quality assurance"], locations=["Remote"])
+    assert is_eligible(j) is True
+
+
+def test_inc_in_title_does_not_trigger_us_state():
+    # ", in" (Indiana) must not match ", Inc" — state codes only match locations.
+    j = make_job(title="QA Engineer, Inc growth team", locations=["Remote"])
+    assert is_eligible(j) is True
+
+
+def test_filter_jobs_excludes_ineligible():
     jobs = [
         make_job(title="QA Engineer", company="A", locations=["United States"]),
-        make_job(title="QA Engineer", company="B", locations=[]),  # remote global
-        make_job(title="QA Worldwide", company="C", locations=["United States"]),
+        make_job(title="QA Engineer", company="B", locations=["Austin, TX"]),
+        make_job(title="QA Engineer", company="C", locations=["Remote"]),  # ambiguous
+        make_job(title="QA Worldwide", company="D", locations=["United States"]),
+        make_job(title="QA Engineer", company="E", locations=["Berlin, Germany"]),
     ]
-    out = filter_jobs(jobs, exclude_us_only=True)
+    out = filter_jobs(jobs, exclude_ineligible=True)
     companies = {j.company for j in out}
-    assert companies == {"B", "C"}
+    assert companies == {"C", "D", "E"}
 
 
 # --- Age cutoff ---

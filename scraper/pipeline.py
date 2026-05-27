@@ -40,7 +40,7 @@ def run_pipeline(
     keywords: Iterable[str] = DEFAULT_INCLUDE_KEYWORDS,
     exclude: Iterable[str] = DEFAULT_EXCLUDE_KEYWORDS,
     remote_only: bool = True,
-    exclude_us_only: bool = True,
+    exclude_ineligible: bool = True,
     max_age_days: int | None = 60,
 ) -> list[Job]:
     """Full scrape → filter → dedup → rank pipeline. Returns the ranked job list."""
@@ -51,7 +51,7 @@ def run_pipeline(
         include=keywords,
         exclude=exclude,
         remote_only=remote_only,
-        exclude_us_only=exclude_us_only,
+        exclude_ineligible=exclude_ineligible,
         max_age_days=max_age_days,
     )
     deduped = deduplicate(filtered)

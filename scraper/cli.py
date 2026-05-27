@@ -57,12 +57,14 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Keep only remote jobs (default: on). Use --no-remote-only to include onsite.",
     )
     p.add_argument(
-        "--exclude-us-only",
+        "--exclude-ineligible",
         action=argparse.BooleanOptionalAction,
         default=True,
         help=(
-            "Drop jobs that look US-only — US location present and no global marker "
-            "(worldwide/global/other country). Default: on."
+            "Drop roles locked to a region the user can't take (US / rest of the "
+            "Americas / Middle East) with no worldwide/APAC/Europe signal. Keeps "
+            "remote-anywhere, APAC and European (remote or relocation) roles, and "
+            "ambiguous listings. Default: on."
         ),
     )
     p.add_argument(
@@ -116,7 +118,7 @@ def main(argv: list[str] | None = None) -> int:
         include=args.keywords,
         exclude=args.exclude,
         remote_only=args.remote_only,
-        exclude_us_only=args.exclude_us_only,
+        exclude_ineligible=args.exclude_ineligible,
         max_age_days=args.max_age_days if args.max_age_days > 0 else None,
     )
     deduped = deduplicate(filtered)

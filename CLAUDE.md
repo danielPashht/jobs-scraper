@@ -11,7 +11,7 @@ scraper/
   cli.py            # `python -m scraper.cli` — one-shot terminal/CSV/JSON output
   bot.py            # `python -m scraper.bot` — long-running Telegram bot (APScheduler)
   pipeline.py       # scrape → filter → dedup → rank
-  filters.py        # keyword include/exclude, US-only heuristic, APAC ranking, age cutoff
+  filters.py        # keyword include/exclude, location eligibility, APAC ranking, age cutoff
   models.py         # pydantic `Job` (dedup key = sha1(title|company))
   config.py         # env-driven Settings dataclass (TG_*, JOBS_*)
   db.py             # SQLite dedup store for the bot
@@ -45,7 +45,7 @@ For pagination, use `max_pages`. For API-based boards (RemoteOK), it's fine to i
 - **Exclude kws:** `manual qa`, `manual quality assurance`, `manual test`, `manual tester`, `intern`
 - **Match haystack:** `title + " ".join(tags) + " ".join(locations)`, lowercased substring match
 - **Remote-only:** on by default (CLI: `--no-remote-only`)
-- **US-only drop:** on by default — conservative; only drops when a US token is present AND no global/other-country marker exists
+- **Location eligibility (`--exclude-ineligible`):** on by default. Daniel is an Asia-based nomad who wants either a fully-remote role he can do from anywhere/Asia, **or** anything in Europe (remote-EU *or* a relocation offer). So `is_eligible()` keeps worldwide/APAC/European listings and anything with no clear region lock (ambiguous → keep, to avoid missing good jobs); it drops only roles clearly locked to a region he can't use — the US (incl. `City, ST` state codes, matched on the location string via `_US_STATE_RE`), the rest of the Americas, and the Middle East — when no eligible signal is present. Conservative by design.
 - **Age cutoff:** 60 days; unknown `posted_at` is treated as recent
 
 Daniel is based in Vietnam, so APAC-friendly listings (or those marked remote/worldwide) sort to the top.

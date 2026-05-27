@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 from datetime import datetime, timedelta, timezone
 
@@ -56,65 +57,63 @@ APAC_HINTS = (
     "remote",
 )
 
-# Strings that indicate a job restricts hiring to the United States.
-_US_TOKENS = ("united states", "usa", " us ", "us-only", "us only", "u.s.")
+# --- Location eligibility --------------------------------------------------
+# Target user is an Asia-based nomad who will take either (a) a role he can do
+# fully remotely from anywhere/Asia, or (b) anything in Europe (remote-EU OR a
+# relocation offer). So a listing is "eligible" when it carries a worldwide /
+# APAC / European signal — or when it carries no clear region lock at all
+# (ambiguous → keep, so we don't miss good jobs). It's dropped only when it is
+# clearly locked to a region he can't use (the US, the rest of the Americas,
+# the Middle East) with no eligible signal present.
 
-# Strings that signal a truly global remote role — overrides US-location signal.
+# A truly location-agnostic remote role.
 _GLOBAL_TOKENS = (
     "worldwide",
     "global",
     "anywhere",
     "international",
-    "remote, eu",
-    "remote — emea",
-    "remote emea",
-    "apac",
-    "europe",
-    "latam",
+    "work from anywhere",
+    "fully remote",
+    "remote-first",
+    "remote first",
 )
 
-# Non-US country / region tokens. If present anywhere in the listing, the role
-# is not US-only even if a US location is also listed.
-_NON_US_COUNTRY_TOKENS = (
-    "germany",
-    "france",
-    "spain",
-    "portugal",
-    "netherlands",
-    "uk",
-    "united kingdom",
-    "ireland",
-    "poland",
-    "ukraine",
-    "estonia",
-    "latvia",
-    "czech",
-    "switzerland",
-    "italy",
-    "austria",
-    "vietnam",
-    "thailand",
-    "singapore",
-    "indonesia",
-    "philippines",
-    "japan",
-    "korea",
-    "hong kong",
-    "taiwan",
-    "india",
-    "argentina",
-    "brazil",
-    "mexico",
-    "colombia",
-    "canada",  # not US, even if many US-only roles also accept Canada
-    "australia",
-    "new zealand",
-    "south africa",
-    "uae",
-    "dubai",
-    "israel",
-    "turkey",
-    "georgia",  # the country, not the state — noisy but worth keeping for our user
+# Europe — either remote-from-Europe or a relocation target. Both are wanted.
+_EUROPE_TOKENS = (
+    "europe", "european union", "european", " eu ", "eu-only", "eu only", "emea",
+    "germany", "france", "spain", "portugal", "netherlands", "uk",
+    "united kingdom", "england", "scotland", "wales", "ireland", "poland",
+    "ukraine", "estonia", "latvia", "lithuania", "czech", "switzerland",
+    "italy", "austria", "belgium", "denmark", "sweden", "norway", "finland",
+    "iceland", "romania", "bulgaria", "greece", "hungary", "croatia", "serbia",
+    "slovakia", "slovenia", "luxembourg", "cyprus", "malta", "georgia",
+    "armenia", "moldova",
+)
+
+# APAC — workable from where the user already is.
+_APAC_TOKENS = (
+    "apac", "asia", "vietnam", "singapore", "thailand", "indonesia",
+    "philippines", "malaysia", "japan", "korea", "hong kong", "taiwan",
+    "india", "china", "australia", "new zealand",
+)
+
+# Region locks the user CANNOT use: the US and the rest of the Americas, plus
+# the Middle East. Presence of one of these (with no eligible signal) drops it.
+_US_NAME_TOKENS = ("united states", "usa", " us ", "us-only", "us only", "u.s.")
+
+# On LinkedIn, US locations arrive as "City, ST" (e.g. "Austin, TX"). Match a
+# trailing two-letter state code on a *location string* specifically, so we
+# don't false-positive on e.g. ", Inc" appearing in a title.
+_US_STATE_RE = re.compile(
+    r",\s*(a[klrz]|c[aot]|d[ce]|fl|ga|hi|i[adln]|k[sy]|la|m[adeinost]|"
+    r"n[cdehjmvy]|o[hkr]|pa|ri|s[cd]|t[nx]|ut|v[at]|w[aivy])$",
+    re.IGNORECASE,
+)
+
+_OTHER_INELIGIBLE_TOKENS = (
+    "canada", "mexico", "brazil", "argentina", "colombia", "chile", "peru",
+    "uruguay", "latam", "latin america", "americas", "united arab emirates",
+    "uae", "dubai", "saudi", "qatar", "kuwait", "bahrain",
 )
 
 
@@ -130,21 +129,30 @@ def matches(job: Job, include: Iterable[str], exclude: Iterable[str]) -> bool:
     return any(kw.lower() in hay for kw in include)
 
 
-def is_us_only(job: Job) -> bool:
-    """Heuristic: True when the listing looks restricted to the United States.
+def is_eligible(job: Job) -> bool:
+    """True when the listing is workable for an Asia-based nomad open to Europe.
 
-    Conservative — only flags when (a) a US location is present and (b) there's
-    no signal of a global hire (no other-country location, no 'worldwide'/'global'
-    in title or tags). Won't catch every US-only role, but minimises false positives
-    on truly global listings.
+    Keeps worldwide / APAC / European roles, and anything with no clear region
+    lock (ambiguous → keep). Drops only roles clearly locked to a region the
+    user can't use (the US, the rest of the Americas, the Middle East) with no
+    eligible signal. Conservative by design — better to surface a borderline
+    role than silently miss a good one.
     """
     hay = _haystack(job)
-    has_us = any(tok in hay for tok in _US_TOKENS)
-    if not has_us:
+    if any(tok in hay for tok in _GLOBAL_TOKENS):
+        return True
+    if any(tok in hay for tok in _EUROPE_TOKENS):
+        return True
+    if any(tok in hay for tok in _APAC_TOKENS):
+        return True
+    # No eligible marker — drop only on a clear ineligible-region lock.
+    if any(tok in hay for tok in _US_NAME_TOKENS):
         return False
-    has_global_marker = any(tok in hay for tok in _GLOBAL_TOKENS)
-    has_other_country = any(tok in hay for tok in _NON_US_COUNTRY_TOKENS)
-    return not (has_global_marker or has_other_country)
+    if any(tok in hay for tok in _OTHER_INELIGIBLE_TOKENS):
+        return False
+    if any(_US_STATE_RE.search(loc.strip()) for loc in job.locations):
+        return False
+    return True  # ambiguous (no signal either way) → keep
 
 
 def is_recent(job: Job, *, max_age_days: int) -> bool:
@@ -164,7 +172,7 @@ def filter_jobs(
     include: Iterable[str] = DEFAULT_INCLUDE_KEYWORDS,
     exclude: Iterable[str] = DEFAULT_EXCLUDE_KEYWORDS,
     remote_only: bool = False,
-    exclude_us_only: bool = False,
+    exclude_ineligible: bool = False,
     max_age_days: int | None = None,
 ) -> list[Job]:
     include = tuple(include)
@@ -175,7 +183,7 @@ def filter_jobs(
             continue
         if remote_only and not job.remote:
             continue
-        if exclude_us_only and is_us_only(job):
+        if exclude_ineligible and not is_eligible(job):
             continue
         if max_age_days is not None and not is_recent(job, max_age_days=max_age_days):
             continue

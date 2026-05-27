@@ -39,7 +39,7 @@ CLI flags:
 | `--exclude` | `manual qa only`, `intern` | Same matching as keywords |
 | `--max-pages` | `3` | Per board |
 | `--remote-only` | **on** | Keep only remote jobs. `--no-remote-only` to include onsite. |
-| `--exclude-us-only` | **on** | Drop jobs that look US-only (US location + no global marker). `--no-exclude-us-only` to keep them. |
+| `--exclude-ineligible` | **on** | Drop roles locked to a region the user can't take (US / rest of the Americas / Middle East) with no worldwide/APAC/Europe signal. Keeps remote-anywhere, APAC, and European (remote **or** relocation) roles, plus ambiguous listings. `--no-exclude-ineligible` to keep everything. |
 | `--max-age-days` | `60` | Drop postings older than N days. Use `0` to disable. |
 | `--output` | — | `.json` or `.csv` |
 | `-v` | off | Verbose logging |
