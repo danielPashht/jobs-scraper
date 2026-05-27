@@ -9,21 +9,24 @@ from rich.console import Console
 from rich.logging import RichHandler
 
 from scraper.boards import ALL_BOARDS
-from scraper.filters import (
-    DEFAULT_EXCLUDE_KEYWORDS,
-    DEFAULT_INCLUDE_KEYWORDS,
-    deduplicate,
-    filter_jobs,
-    rank,
-)
-from scraper.models import Job
 from scraper.output import render_table, write_csv, write_json
+from scraper.pipeline import run_pipeline
+from scraper.search_profile import load_profile
 
 
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="jobs-scraper",
-        description="Scrape web3/fintech job boards for SDET/QA roles.",
+        description=(
+            "Scrape remote job boards for a configurable role. Defaults come "
+            "from search.toml (see search.example.toml); flags override per run."
+        ),
+    )
+    p.add_argument(
+        "--profile",
+        type=Path,
+        default=None,
+        help="Path to a search.toml profile (default: ./search.toml, else built-in defaults).",
     )
     p.add_argument(
         "--boards",
@@ -32,17 +35,18 @@ def _build_parser() -> argparse.ArgumentParser:
         choices=sorted(ALL_BOARDS.keys()),
         help="Boards to scrape (default: web3career)",
     )
+    # Keyword / eligibility flags default to None → fall back to the profile.
     p.add_argument(
         "--keywords",
         nargs="+",
-        default=list(DEFAULT_INCLUDE_KEYWORDS),
-        help="Include keywords (title/tags/location, case-insensitive)",
+        default=None,
+        help="Include keywords (title/tags/location, case-insensitive). Overrides the profile.",
     )
     p.add_argument(
         "--exclude",
         nargs="+",
-        default=list(DEFAULT_EXCLUDE_KEYWORDS),
-        help="Exclude keywords",
+        default=None,
+        help="Exclude keywords. Overrides the profile.",
     )
     p.add_argument(
         "--max-pages",
@@ -59,12 +63,11 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--exclude-ineligible",
         action=argparse.BooleanOptionalAction,
-        default=True,
+        default=None,
         help=(
-            "Drop roles locked to a region the user can't take (US / rest of the "
-            "Americas / Middle East) with no worldwide/APAC/Europe signal. Keeps "
-            "remote-anywhere, APAC and European (remote or relocation) roles, and "
-            "ambiguous listings. Default: on."
+            "Drop jobs locked to a region your profile marks ineligible, when no "
+            "eligible-region signal is present. Keeps remote-anywhere and "
+            "ambiguous listings. Default: the profile's eligibility setting."
         ),
     )
     p.add_argument(
@@ -88,20 +91,6 @@ def _build_parser() -> argparse.ArgumentParser:
     return p
 
 
-def _scrape(boards: list[str], max_pages: int) -> list[Job]:
-    collected: list[Job] = []
-    for name in boards:
-        board_cls = ALL_BOARDS[name]
-        board = board_cls()
-        try:
-            collected.extend(board.fetch(max_pages=max_pages))
-        except Exception as exc:  # noqa: BLE001 — one board's failure shouldn't kill the run
-            logging.error("board %s failed: %s", name, exc)
-        finally:
-            board.close()
-    return collected
-
-
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     logging.basicConfig(
@@ -110,20 +99,29 @@ def main(argv: list[str] | None = None) -> int:
         handlers=[RichHandler(show_time=False, show_path=False)],
     )
 
-    raw = _scrape(args.boards, args.max_pages)
-    logging.info("scraped %d raw jobs", len(raw))
+    profile = load_profile(args.profile)
+    keywords = args.keywords if args.keywords is not None else list(profile.include_keywords)
+    exclude = args.exclude if args.exclude is not None else list(profile.exclude_keywords)
+    exclude_ineligible = (
+        args.exclude_ineligible
+        if args.exclude_ineligible is not None
+        else profile.eligibility_enabled
+    )
+    logging.info("searching for: %s", profile.role)
 
-    filtered = filter_jobs(
-        raw,
-        include=args.keywords,
-        exclude=args.exclude,
+    ranked = run_pipeline(
+        boards=args.boards,
+        max_pages=args.max_pages,
+        keywords=keywords,
+        exclude=exclude,
         remote_only=args.remote_only,
-        exclude_ineligible=args.exclude_ineligible,
+        exclude_ineligible=exclude_ineligible,
+        eligible_regions=profile.eligible_regions,
+        blocked_regions=profile.blocked_regions,
+        block_us_states=profile.block_us_states,
+        prioritize=profile.prioritize,
         max_age_days=args.max_age_days if args.max_age_days > 0 else None,
     )
-    deduped = deduplicate(filtered)
-    ranked = rank(deduped)
-    logging.info("after filter/dedup: %d jobs", len(ranked))
 
     console = Console()
     if not ranked:

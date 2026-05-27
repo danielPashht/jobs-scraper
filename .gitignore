@@ -7,6 +7,9 @@ __pycache__/
 # Secrets
 .env
 
+# Local search profile (copy from search.example.toml)
+search.toml
+
 # Local data
 data/
 logs/

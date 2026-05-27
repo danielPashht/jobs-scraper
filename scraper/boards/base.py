@@ -21,7 +21,16 @@ class Board(ABC):
     name: str
     """Short identifier used on the CLI (e.g. 'web3career')."""
 
-    def __init__(self, client: httpx.Client | None = None) -> None:
+    def __init__(
+        self,
+        client: httpx.Client | None = None,
+        *,
+        keywords: Iterable[str] | None = None,
+    ) -> None:
+        # The active search's include keywords. Boards that need a server-side
+        # query (LinkedIn) or a path slug (web3.career) derive it from these;
+        # broad-feed boards ignore them and let the pipeline filter narrow.
+        self.query_keywords: tuple[str, ...] = tuple(keywords) if keywords else ()
         self.client = client or httpx.Client(
             headers=DEFAULT_HEADERS,
             follow_redirects=True,

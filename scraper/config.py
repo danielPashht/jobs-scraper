@@ -9,6 +9,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# NOTE: this module holds operational/secret config only (Telegram, schedule,
+# boards, paging). *What* to search for — role keywords + location eligibility —
+# lives in search.toml via scraper.search_profile.SearchProfile.
+
 
 def _parse_times(raw: str) -> list[tuple[int, int]]:
     out = []

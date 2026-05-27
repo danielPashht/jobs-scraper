@@ -20,15 +20,16 @@ SEARCH_URL = "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/se
 PAGE_SIZE = 25
 
 # NOTE: unlike other boards, LinkedIn has no "fetch everything" mode — the guest
-# endpoint *requires* a keywords query. So this string is a source-side query
-# parameter (like RemoteOK's tag slices), not board-level post-filtering. The
-# pipeline's keyword filter still runs on top and narrows further.
+# endpoint *requires* a keywords query. So the query is a source-side parameter
+# (like RemoteOK's tag slices), not board-level post-filtering. The pipeline's
+# keyword filter still runs on top and narrows further.
 #
-# LinkedIn's `keywords` field supports boolean operators (AND / OR / quotes /
-# parens), so we pass Daniel's target query verbatim.
+# The query is derived from the active search's include keywords (OR-ed
+# together, since LinkedIn's `keywords` field supports boolean operators). This
+# fallback is only used when the board is constructed without keywords.
 DEFAULT_KEYWORDS = (
-    '("SDET" OR "QA" OR "AQA") AND "Python" AND ("Playwright" OR "PYTEST") '
-    'AND ("Crypto" OR "Trading" OR "Fintech" OR "Startup" OR "Payment" OR "Web3" OR "Dex")'
+    '("SDET" OR "QA" OR "AQA" OR "Automation QA" OR "Test Engineer" '
+    'OR "Quality Assurance")'
 )
 
 # "Worldwide" + f_WT=2 (remote) keeps results remote-friendly; the pipeline's
@@ -44,14 +45,20 @@ RATE_LIMIT_BACKOFF_SECONDS = 20.0
 class LinkedInBoard(Board):
     name = "linkedin"
 
-    keywords: str = DEFAULT_KEYWORDS
     location: str = DEFAULT_LOCATION
 
+    def _keywords_query(self) -> str:
+        """OR the active search's include keywords into a LinkedIn boolean query."""
+        if not self.query_keywords:
+            return DEFAULT_KEYWORDS
+        return " OR ".join(f'"{kw}"' for kw in self.query_keywords)
+
     def fetch(self, *, max_pages: int = 3) -> Iterable[Job]:
+        query = self._keywords_query()
         seen_ids: set[str] = set()
         for page in range(max_pages):
             params = {
-                "keywords": self.keywords,
+                "keywords": query,
                 "location": self.location,
                 "f_WT": "2",  # remote
                 "start": page * PAGE_SIZE,

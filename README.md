@@ -1,6 +1,8 @@
 # jobs-scraper
 
-Python CLI that scrapes remote job boards for SDET / Automation QA / test-engineer roles across all industries (web3, fintech, SaaS, anything), filters by keyword, dedupes across sources, and prints a ranked table.
+Python CLI + Telegram bot that scrapes remote job boards across all industries (web3, fintech, SaaS, anything), filters by keyword, dedupes across sources, ranks your preferred locations first, and prints a ranked table (or pushes new listings to Telegram).
+
+**The role you search for is configurable** — it ships set up for SDET / Automation QA, but a `search.toml` profile lets anyone point it at any technical role and their own location situation. Run the `/setup-search` skill (in Claude Code) to be interviewed and have it written for you, or copy `search.example.toml` → `search.toml` and edit. See [Configure your search](#configure-your-search).
 
 Replaces an earlier Claude-API "simulated listings" widget with real listings.
 
@@ -34,30 +36,45 @@ CLI flags:
 
 | Flag | Default | Notes |
 |---|---|---|
+| `--profile` | `./search.toml` | Search profile to load (falls back to built-in defaults if absent). |
 | `--boards` | `web3career` | Repeatable; choices: `web3career`, `remoteok`, `weworkremotely`, `linkedin`, `cryptojobslist` (stub) |
-| `--keywords` | SDET/QA defaults | Case-insensitive substring match on title + tags + location |
-| `--exclude` | `manual qa only`, `intern` | Same matching as keywords |
+| `--keywords` | from `search.toml` | Case-insensitive substring match on title + tags + location. Overrides the profile. |
+| `--exclude` | from `search.toml` | Same matching as keywords. Overrides the profile. |
 | `--max-pages` | `3` | Per board |
 | `--remote-only` | **on** | Keep only remote jobs. `--no-remote-only` to include onsite. |
-| `--exclude-ineligible` | **on** | Drop roles locked to a region the user can't take (US / rest of the Americas / Middle East) with no worldwide/APAC/Europe signal. Keeps remote-anywhere, APAC, and European (remote **or** relocation) roles, plus ambiguous listings. `--no-exclude-ineligible` to keep everything. |
+| `--exclude-ineligible` | profile's setting | Drop roles locked to a region your profile marks ineligible, when no eligible-region signal is present. Keeps remote-anywhere and ambiguous listings. `--no-exclude-ineligible` to keep everything. |
 | `--max-age-days` | `60` | Drop postings older than N days. Use `0` to disable. |
 | `--output` | — | `.json` or `.csv` |
 | `-v` | off | Verbose logging |
 
+## Configure your search
+
+What the scraper looks for lives in **`search.toml`** (gitignored, like `.env`). Two ways to create it:
+
+- **Easiest:** open the repo in Claude Code and run the **`/setup-search`** skill. It interviews you (role, keywords, where you can work, Telegram), then writes `search.toml` + `.env` and runs a verification scrape.
+- **Manual:** `cp search.example.toml search.toml` and edit. `search.example.toml` documents every field.
+
+The profile has two parts:
+
+- `[search]` — `role` label, `include_keywords`, `exclude_keywords`. Keywords are lowercase substrings matched on title + tags + location; a job is kept if it matches any include and no exclude keyword. They also drive the boards that need a server-side query (LinkedIn ORs them together; web3.career builds its URL slug from the first one).
+- `[eligibility]` — `eligible_regions` (keep on match), `blocked_regions` (drop on match when no eligible signal), `block_us_states` (catch US "City, ST" locations), and `prioritize` (locations floated to the top). Set `enabled = false` to keep everything regardless of region.
+
+If there's no `search.toml`, the project runs on its built-in defaults (SDET/QA, Asia-based-open-to-Europe), so it works out of the box.
+
 ## Output
 
 Ranked by:
-1. APAC-friendly (remote OR location mentions APAC) — Daniel is in Vietnam
+1. Preferred location first — your `prioritize` tokens from `search.toml` (defaults to remote / APAC)
 2. Newest first
 
 ## Sources
 
 | Board | Status | Notes |
 |---|---|---|
-| web3.career | working | Static HTML, paginated `?page=N`, 1.5s inter-page delay |
-| remoteok.com | working | Public JSON API (`/api?tags=...`). General remote board across all industries — pulled tags: `qa`, `testing`. Edit `DEFAULT_TAGS` in `scraper/boards/remoteok.py` to widen. |
-| weworkremotely.com | working | Per-category RSS (stdlib `xml.etree`), 1s inter-category delay. |
-| linkedin.com | working | Public **guest** jobs endpoint (`jobs-guest/jobs/api/seeMoreJobPostings`), no auth. Requires a `keywords` query, so the board ships a boolean default query (`DEFAULT_KEYWORDS` in `scraper/boards/linkedin.py`) — unlike other boards this is a source-side filter, with the pipeline narrowing on top. Throttled hard: 3s inter-page delay + one-shot 20s backoff on HTTP 429. Avoids the authenticated Voyager API on purpose (account-ban risk). |
+| web3.career | working | Static HTML, paginated `?page=N`, 1.5s inter-page delay. URL slug (`/<role>+remote-jobs`) is derived from your first include keyword; web3-flavored, so it may return little for non-web3 roles. |
+| remoteok.com | working | Public JSON API. Fetches the **full recent feed** and lets the pipeline keyword filter narrow it — role-agnostic. Set `tags` on `RemoteOKBoard` to pull specific tag slices instead. |
+| weworkremotely.com | working | Fetches the full **all-jobs RSS feed** (stdlib `xml.etree`) and lets the keyword filter narrow. Set `categories` on `WeWorkRemotelyBoard` to pull specific category feeds. |
+| linkedin.com | working | Public **guest** jobs endpoint (`jobs-guest/jobs/api/seeMoreJobPostings`), no auth. Requires a `keywords` query, which is built by OR-ing your `include_keywords` — a source-side query, with the pipeline narrowing on top. Throttled hard: 3s inter-page delay + one-shot 20s backoff on HTTP 429. Avoids the authenticated Voyager API on purpose (account-ban risk). |
 | cryptojobslist.com | stub | Cloudflare challenge blocks httpx. Needs Playwright + stealth — see `scraper/boards/cryptojobslist.py` for the wiring instructions |
 
 ## Tests
@@ -134,6 +151,9 @@ The first run sends every job that passes the filters, since the dedup DB starts
 | `JOBS_MAX_PAGES` | `3` | per board |
 | `JOBS_MAX_AGE_DAYS` | `60` | age cutoff |
 | `PLAYWRIGHT_BROWSERS_PATH` | system default | needed for CJL |
+
+> The role you're searching for (keywords + location eligibility) is **not** in
+> `.env` — it lives in `search.toml`. See [Configure your search](#configure-your-search).
 
 ## Next steps
 

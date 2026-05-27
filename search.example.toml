@@ -1,0 +1,100 @@
+# ── jobs-scraper: what you're searching for ──────────────────────────────────
+#
+# Copy this file to `search.toml` and edit it for your own job hunt — or just
+# run the `/setup-search` skill in Claude Code, which interviews you and writes
+# `search.toml` (and `.env`) for you.
+#
+# `search.toml` is gitignored (like `.env`). This file is the committed template
+# and ships the project's default search: SDET / Automation QA, for an
+# Asia-based remote worker who's also open to Europe.
+#
+# Secrets and operational settings (Telegram token, schedule, which boards to
+# scrape) live in `.env`, not here. This file is ONLY "what am I looking for".
+
+[search]
+# A human label for the role — shown in CLI/bot output. Free text.
+role = "SDET / Automation QA"
+
+# Case-insensitive substring keywords matched against title + tags + location.
+# A job is KEPT when it matches ANY include keyword and NO exclude keyword.
+# These also drive the boards that need a server-side query: LinkedIn ORs them
+# into its search, and web3.career builds its URL slug from the first one.
+#
+# To search for a different role, replace these with your role's terms, e.g.
+#   include_keywords = ["data engineer", "data platform", "etl", "airflow", "spark"]
+#   exclude_keywords = ["intern", "manager"]
+include_keywords = [
+    "automation qa",
+    "qa automation",
+    "test automation",
+    "sdet",
+    "engineer in test",
+    "test engineer",
+    "qa engineer",
+    "quality assurance",
+    "pytest",
+    "playwright",
+    "selenium",
+]
+exclude_keywords = [
+    "manual qa",
+    "manual quality assurance",
+    "manual test",
+    "manual tester",
+    "intern",
+    "expression of interest",
+]
+
+[eligibility]
+# Filter out jobs locked to a region you can't work from.
+#
+# A job is KEPT if it matches any `eligible_regions` token. Otherwise it is
+# DROPPED if it matches any `blocked_regions` token (or, when `block_us_states`
+# is true, a US "City, ST" code like "Austin, TX"). Jobs with no location
+# signal at all are kept (ambiguous → keep, so you don't miss good roles).
+#
+# Set `enabled = false` to skip region filtering entirely (keep everything).
+enabled = true
+
+# Regions you CAN work from / want. Tokens are lowercase substrings matched
+# against the listing's location + tags + title. The default set = anywhere +
+# Europe + APAC. Swap in your own, e.g. a US-based user might use:
+#   eligible_regions = ["worldwide", "anywhere", "remote", "united states", "usa", "us", "canada", "latam"]
+eligible_regions = [
+    # anywhere / fully remote
+    "worldwide", "global", "anywhere", "international",
+    "work from anywhere", "fully remote", "remote-first", "remote first",
+    # europe (remote-EU or relocation)
+    "europe", "european union", "european", " eu ", "eu-only", "eu only", "emea",
+    "germany", "france", "spain", "portugal", "netherlands", "uk",
+    "united kingdom", "england", "scotland", "wales", "ireland", "poland",
+    "ukraine", "estonia", "latvia", "lithuania", "czech", "switzerland",
+    "italy", "austria", "belgium", "denmark", "sweden", "norway", "finland",
+    "iceland", "romania", "bulgaria", "greece", "hungary", "croatia", "serbia",
+    "slovakia", "slovenia", "luxembourg", "cyprus", "malta", "georgia",
+    "armenia", "moldova",
+    # apac
+    "apac", "asia", "vietnam", "singapore", "thailand", "indonesia",
+    "philippines", "malaysia", "japan", "korea", "hong kong", "taiwan",
+    "india", "china", "australia", "new zealand",
+]
+
+# Regions you CANNOT take. A match here drops the listing only when no
+# eligible-region signal is present.
+blocked_regions = [
+    "united states", "usa", " us ", "us-only", "us only", "u.s.",
+    "canada", "mexico", "brazil", "argentina", "colombia", "chile", "peru",
+    "uruguay", "latam", "latin america", "americas", "united arab emirates",
+    "uae", "dubai", "saudi", "qatar", "kuwait", "bahrain",
+]
+
+# Catch US "City, ST" location strings (e.g. "Austin, TX") even without "USA".
+# Turn off if the US is one of your eligible regions.
+block_us_states = true
+
+# Tokens that float to the top of the ranked results — your preferred
+# locations. Everything else still shows, just below these.
+prioritize = [
+    "apac", "asia", "vietnam", "singapore", "thailand", "indonesia",
+    "philippines", "japan", "korea", "hong kong", "taiwan", "remote",
+]

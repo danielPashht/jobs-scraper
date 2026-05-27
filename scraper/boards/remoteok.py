@@ -12,25 +12,28 @@ log = logging.getLogger(__name__)
 
 API_URL = "https://remoteok.com/api"
 
-# RemoteOK is a general remote board across all industries. We pull the
-# tag-filtered slices most likely to contain SDET/QA roles — the pipeline's
-# keyword filter narrows further regardless of industry (web3, fintech, SaaS,
-# anything). Dedup across slices happens via the job id.
-DEFAULT_TAGS: tuple[str, ...] = ("qa", "testing")
+# RemoteOK is a general remote board across all industries. By default we pull
+# its full recent feed and let the pipeline's keyword filter narrow it to the
+# active role — that keeps the board role-agnostic. Set `tags` to fetch specific
+# tag slices instead (each tag is one extra request, deduped by job id).
+DEFAULT_TAGS: tuple[str, ...] = ()
 
 
 class RemoteOKBoard(Board):
     name = "remoteok"
 
-    # API returns the full set per tag in one response; `max_pages` is accepted
-    # for interface compatibility but is not used for pagination here.
+    # API returns the full set per request; `max_pages` is accepted for
+    # interface compatibility but is not used for pagination here.
     tags: tuple[str, ...] = DEFAULT_TAGS
 
     def fetch(self, *, max_pages: int = 3) -> Iterable[Job]:
+        # Empty tags → one call to the broad feed; otherwise one call per tag.
+        slices: tuple[str | None, ...] = self.tags or (None,)
         seen_ids: set[str] = set()
-        for i, tag in enumerate(self.tags):
-            log.info("remoteok fetch tag=%s", tag)
-            resp = self.client.get(API_URL, params={"tags": tag})
+        for i, tag in enumerate(slices):
+            log.info("remoteok fetch tag=%s", tag or "(all)")
+            params = {"tags": tag} if tag else None
+            resp = self.client.get(API_URL, params=params)
             resp.raise_for_status()
             payload = resp.json()
 
@@ -47,7 +50,7 @@ class RemoteOKBoard(Board):
                 if job is not None:
                     yield job
 
-            if i < len(self.tags) - 1:
+            if i < len(slices) - 1:
                 time.sleep(1.0)
 
     def _parse_entry(self, entry: dict) -> Job | None:

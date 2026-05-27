@@ -13,16 +13,14 @@ from scraper.models import Job
 log = logging.getLogger(__name__)
 
 BASE_URL = "https://weworkremotely.com"
+# WWR's full feed across every category. We pull this by default and let the
+# pipeline's keyword filter narrow to the active role, keeping the board
+# role-agnostic.
+ALL_JOBS_RSS = "/remote-jobs.rss"
 
-# WWR has no dedicated QA feed, so pull the categories most likely to contain
-# SDET/test-engineer roles. The pipeline's keyword filter narrows from there.
-DEFAULT_CATEGORIES: tuple[str, ...] = (
-    "remote-programming-jobs",
-    "remote-devops-sysadmin-jobs",
-    "remote-full-stack-programming-jobs",
-    "remote-back-end-programming-jobs",
-    "remote-front-end-programming-jobs",
-)
+# Set `categories` to fetch specific category RSS feeds instead of the full feed
+# (one request each). Empty → the broad ALL_JOBS_RSS feed.
+DEFAULT_CATEGORIES: tuple[str, ...] = ()
 
 
 class WeWorkRemotelyBoard(Board):
@@ -31,17 +29,20 @@ class WeWorkRemotelyBoard(Board):
     categories: tuple[str, ...] = DEFAULT_CATEGORIES
 
     def fetch(self, *, max_pages: int = 3) -> Iterable[Job]:
+        if self.categories:
+            urls = [f"{BASE_URL}/categories/{c}.rss" for c in self.categories]
+        else:
+            urls = [f"{BASE_URL}{ALL_JOBS_RSS}"]
         seen_links: set[str] = set()
-        for i, category in enumerate(self.categories):
-            url = f"{BASE_URL}/categories/{category}.rss"
-            log.info("weworkremotely fetch category=%s", category)
+        for i, url in enumerate(urls):
+            log.info("weworkremotely fetch url=%s", url)
             resp = self.client.get(url)
             resp.raise_for_status()
 
             try:
                 root = ET.fromstring(resp.text)
             except ET.ParseError as exc:
-                log.warning("weworkremotely RSS parse failed for %s: %s", category, exc)
+                log.warning("weworkremotely RSS parse failed for %s: %s", url, exc)
                 continue
 
             for item in root.findall(".//item"):
@@ -54,7 +55,7 @@ class WeWorkRemotelyBoard(Board):
                 if job is not None:
                     yield job
 
-            if i < len(self.categories) - 1:
+            if i < len(urls) - 1:
                 time.sleep(1.0)
 
     def _parse_item(self, item: ET.Element, link: str) -> Job | None:

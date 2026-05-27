@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 from collections.abc import Iterable
 from datetime import datetime
@@ -13,16 +14,25 @@ from scraper.models import Job
 log = logging.getLogger(__name__)
 
 BASE_URL = "https://web3.career"
-# The "remote+quality-assurance" canonical form is "quality-assurance+remote-jobs".
-LIST_PATH = "/quality-assurance+remote-jobs"
+# web3.career category pages take the form "/<role-slug>+remote-jobs", e.g.
+# "/quality-assurance+remote-jobs". We derive the slug from the active search's
+# primary keyword; this is the default when no keywords are supplied.
+DEFAULT_SLUG = "quality-assurance"
 
 
 class Web3CareerBoard(Board):
     name = "web3career"
 
+    def _list_path(self) -> str:
+        slug = DEFAULT_SLUG
+        if self.query_keywords:
+            slug = re.sub(r"[^a-z0-9]+", "-", self.query_keywords[0].lower()).strip("-") or DEFAULT_SLUG
+        return f"/{slug}+remote-jobs"
+
     def fetch(self, *, max_pages: int = 3) -> Iterable[Job]:
+        list_path = self._list_path()
         for page in range(1, max_pages + 1):
-            url = f"{BASE_URL}{LIST_PATH}"
+            url = f"{BASE_URL}{list_path}"
             params = {"page": page} if page > 1 else None
             log.info("web3.career fetch page=%d", page)
             resp = self.client.get(url, params=params)

@@ -119,6 +119,16 @@ _OTHER_INELIGIBLE_TOKENS = (
     "uae", "dubai", "saudi", "qatar", "kuwait", "bahrain",
 )
 
+# Aggregated defaults consumed by is_eligible / rank when no profile overrides
+# them (see scraper/search_profile.py). A listing is KEPT if it matches any
+# eligible-region token; otherwise DROPPED if it matches a blocked-region token
+# (or a US "City, ST" code, when block_us_states is on). These reproduce the
+# original Asia-nomad-open-to-Europe behaviour as the shipped default.
+DEFAULT_ELIGIBLE_REGIONS = _GLOBAL_TOKENS + _EUROPE_TOKENS + _APAC_TOKENS
+DEFAULT_BLOCKED_REGIONS = _US_NAME_TOKENS + _OTHER_INELIGIBLE_TOKENS
+# Tokens that float to the top of the ranked output (preferred locations).
+DEFAULT_PRIORITIZE = APAC_HINTS
+
 
 def _haystack(job: Job) -> str:
     parts = [job.title, " ".join(job.tags), " ".join(job.locations)]
@@ -132,28 +142,30 @@ def matches(job: Job, include: Iterable[str], exclude: Iterable[str]) -> bool:
     return any(kw.lower() in hay for kw in include)
 
 
-def is_eligible(job: Job) -> bool:
-    """True when the listing is workable for an Asia-based nomad open to Europe.
+def is_eligible(
+    job: Job,
+    *,
+    eligible_regions: Iterable[str] = DEFAULT_ELIGIBLE_REGIONS,
+    blocked_regions: Iterable[str] = DEFAULT_BLOCKED_REGIONS,
+    block_us_states: bool = True,
+) -> bool:
+    """True when the listing is workable from the user's location situation.
 
-    Keeps worldwide / APAC / European roles, and anything with no clear region
-    lock (ambiguous → keep). Drops only roles clearly locked to a region the
-    user can't use (the US, the rest of the Americas, the Middle East) with no
-    eligible signal. Conservative by design — better to surface a borderline
-    role than silently miss a good one.
+    Keeps any listing carrying an eligible-region signal, plus anything with no
+    clear region lock (ambiguous → keep). Drops only listings clearly locked to
+    a blocked region (or a US "City, ST" code when ``block_us_states`` is on)
+    with no eligible signal present. Conservative by design — better to surface
+    a borderline role than silently miss a good one. The default region lists
+    reproduce the original Asia-nomad-open-to-Europe behaviour; the search
+    profile overrides them per user.
     """
     hay = _haystack(job)
-    if any(tok in hay for tok in _GLOBAL_TOKENS):
-        return True
-    if any(tok in hay for tok in _EUROPE_TOKENS):
-        return True
-    if any(tok in hay for tok in _APAC_TOKENS):
+    if any(tok in hay for tok in eligible_regions):
         return True
     # No eligible marker — drop only on a clear ineligible-region lock.
-    if any(tok in hay for tok in _US_NAME_TOKENS):
+    if any(tok in hay for tok in blocked_regions):
         return False
-    if any(tok in hay for tok in _OTHER_INELIGIBLE_TOKENS):
-        return False
-    if any(_US_STATE_RE.search(loc.strip()) for loc in job.locations):
+    if block_us_states and any(_US_STATE_RE.search(loc.strip()) for loc in job.locations):
         return False
     return True  # ambiguous (no signal either way) → keep
 
@@ -176,17 +188,27 @@ def filter_jobs(
     exclude: Iterable[str] = DEFAULT_EXCLUDE_KEYWORDS,
     remote_only: bool = False,
     exclude_ineligible: bool = False,
+    eligible_regions: Iterable[str] = DEFAULT_ELIGIBLE_REGIONS,
+    blocked_regions: Iterable[str] = DEFAULT_BLOCKED_REGIONS,
+    block_us_states: bool = True,
     max_age_days: int | None = None,
 ) -> list[Job]:
     include = tuple(include)
     exclude = tuple(exclude)
+    eligible_regions = tuple(eligible_regions)
+    blocked_regions = tuple(blocked_regions)
     out: list[Job] = []
     for job in jobs:
         if is_junk_title(job.title):
             continue
         if remote_only and not job.remote:
             continue
-        if exclude_ineligible and not is_eligible(job):
+        if exclude_ineligible and not is_eligible(
+            job,
+            eligible_regions=eligible_regions,
+            blocked_regions=blocked_regions,
+            block_us_states=block_us_states,
+        ):
             continue
         if max_age_days is not None and not is_recent(job, max_age_days=max_age_days):
             continue
@@ -205,18 +227,25 @@ def deduplicate(jobs: Iterable[Job]) -> list[Job]:
     return list(seen.values())
 
 
-def is_apac_friendly(job: Job) -> bool:
+def is_prioritized(job: Job, prioritize: Iterable[str] = DEFAULT_PRIORITIZE) -> bool:
+    """True when the listing matches a preferred-location token (floats to top)."""
     hay = _haystack(job)
-    return any(hint in hay for hint in APAC_HINTS)
+    return any(tok in hay for tok in prioritize)
 
 
-def rank(jobs: Iterable[Job]) -> list[Job]:
-    """Sort jobs by posted_at desc (newest first), then by APAC-friendliness."""
+def is_apac_friendly(job: Job) -> bool:
+    """Back-compat alias for the shipped default (APAC-preferred) prioritization."""
+    return is_prioritized(job)
+
+
+def rank(jobs: Iterable[Job], *, prioritize: Iterable[str] = DEFAULT_PRIORITIZE) -> list[Job]:
+    """Sort by preferred-location first, then posted_at desc (newest first)."""
+    prioritize = tuple(prioritize)
 
     def key(j: Job) -> tuple[int, float]:
-        # APAC-friendly first (0 < 1), then most recent first (negated timestamp).
-        apac = 0 if is_apac_friendly(j) else 1
+        # Preferred-location first (0 < 1), then most recent first (negated ts).
+        pref = 0 if is_prioritized(j, prioritize) else 1
         ts = j.posted_at.timestamp() if j.posted_at else 0.0
-        return (apac, -ts)
+        return (pref, -ts)
 
     return sorted(jobs, key=key)

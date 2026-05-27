@@ -19,9 +19,10 @@ from telegram.request import HTTPXRequest
 
 from scraper.config import Settings, load_settings
 from scraper.db import Repo
-from scraper.filters import is_apac_friendly
+from scraper.filters import DEFAULT_PRIORITIZE, is_prioritized
 from scraper.models import Job
 from scraper.pipeline import run_pipeline
+from scraper.search_profile import SearchProfile, load_profile
 
 log = logging.getLogger(__name__)
 
@@ -46,28 +47,32 @@ def _format_age(posted_at: datetime | None) -> str:
     return f"{days}d old"
 
 
-def _format_job(idx: int, job: Job) -> str:
+def _format_job(idx: int, job: Job, prioritize: tuple[str, ...] = DEFAULT_PRIORITIZE) -> str:
     title = html.escape(job.title)
     company = html.escape(job.company)
     salary = html.escape(job.salary) if job.salary else "salary not listed"
     age = _format_age(job.posted_at)
     locs = html.escape(", ".join(job.locations)) if job.locations else "remote"
-    apac = " · APAC-friendly" if is_apac_friendly(job) else ""
+    pref = " · ★ preferred location" if is_prioritized(job, prioritize) else ""
     url = html.escape(str(job.url))
     return (
         f"<b>{idx}. {title}</b> — {company}\n"
-        f"   {salary} · {age} · {locs}{apac}\n"
+        f"   {salary} · {age} · {locs}{pref}\n"
         f"   <a href=\"{url}\">Apply</a>"
     )
 
 
-def format_jobs_message(jobs: list[Job], header: str | None = None) -> list[str]:
+def format_jobs_message(
+    jobs: list[Job],
+    header: str | None = None,
+    prioritize: tuple[str, ...] = DEFAULT_PRIORITIZE,
+) -> list[str]:
     """Split a job list into Telegram-sized chunks."""
     header = header or f"<b>{len(jobs)} new job{'s' if len(jobs) != 1 else ''}</b>"
     chunks: list[str] = []
     current = header
     for i, job in enumerate(jobs, 1):
-        block = _format_job(i, job)
+        block = _format_job(i, job, prioritize)
         if len(current) + len(block) + 2 > MAX_MESSAGE_CHARS:
             chunks.append(current)
             current = block
@@ -143,6 +148,7 @@ async def cmd_fetch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def _run_and_report(context: ContextTypes.DEFAULT_TYPE, chat_ids: list[int]) -> None:
     settings: Settings = context.application.bot_data["settings"]
+    profile: SearchProfile = context.application.bot_data["profile"]
     repo: Repo = context.application.bot_data["repo"]
     try:
         jobs = await asyncio.to_thread(
@@ -150,6 +156,13 @@ async def _run_and_report(context: ContextTypes.DEFAULT_TYPE, chat_ids: list[int
             boards=settings.boards,
             max_pages=settings.max_pages,
             max_age_days=settings.max_age_days,
+            keywords=profile.include_keywords,
+            exclude=profile.exclude_keywords,
+            exclude_ineligible=profile.eligibility_enabled,
+            eligible_regions=profile.eligible_regions,
+            blocked_regions=profile.blocked_regions,
+            block_us_states=profile.block_us_states,
+            prioritize=profile.prioritize,
         )
     except Exception as exc:  # noqa: BLE001
         log.exception("pipeline failed")
@@ -165,7 +178,7 @@ async def _run_and_report(context: ContextTypes.DEFAULT_TYPE, chat_ids: list[int
             await _safe_send(context.bot, cid, "No new jobs.")
         return
 
-    chunks = format_jobs_message(new_jobs)
+    chunks = format_jobs_message(new_jobs, prioritize=profile.prioritize)
     for cid in chat_ids:
         for chunk in chunks:
             await _safe_send(
@@ -241,7 +254,7 @@ async def _notify_started(app: Application) -> None:
         await _safe_send(app.bot, cid, msg)
 
 
-def build_app(settings: Settings, repo: Repo) -> Application:
+def build_app(settings: Settings, repo: Repo, profile: SearchProfile | None = None) -> Application:
     # Beefier HTTP client — Vietnamese ISP/Telegram CDN combo benefits from
     # longer connect/read timeouts and a larger pool.
     request = HTTPXRequest(
@@ -259,6 +272,7 @@ def build_app(settings: Settings, repo: Repo) -> Application:
     )
     app.bot_data["settings"] = settings
     app.bot_data["repo"] = repo
+    app.bot_data["profile"] = profile or load_profile()
     app.add_error_handler(_on_error)
 
     app.add_handler(CommandHandler("start", cmd_start))
@@ -291,9 +305,11 @@ def main() -> None:
     logging.getLogger("httpcore").setLevel(logging.WARNING)
 
     settings = load_settings()
+    profile = load_profile()
     repo = Repo(settings.db_path)
     log.info(
-        "Bot booting. db=%s reported_so_far=%d allowed_user_id=%s schedule=%s tz=%s",
+        "Bot booting. role=%r db=%s reported_so_far=%d allowed_user_id=%s schedule=%s tz=%s",
+        profile.role,
         settings.db_path,
         repo.count_reported(),
         settings.tg_allowed_user_id,
@@ -301,7 +317,7 @@ def main() -> None:
         settings.tz.key,
     )
 
-    app = build_app(settings, repo)
+    app = build_app(settings, repo, profile)
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
