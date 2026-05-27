@@ -40,6 +40,22 @@ def test_include_match_on_title():
     assert out[0].title == "Senior SDET"
 
 
+@pytest.mark.parametrize(
+    "title",
+    [
+        "QA Automation Engineer",
+        "Sr QA Automation",
+        "Senior Mobile Test Automation Engineer",
+        "Software Development Engineer in Test",
+        "Staff Software Engineer in Test",
+    ],
+)
+def test_include_match_on_common_sdet_title_variants(title):
+    # These word orderings were missed by the original keyword list.
+    out = filter_jobs([make_job(title=title, tags=[], locations=["Remote"])])
+    assert len(out) == 1
+
+
 def test_exclude_keyword_strips_match():
     jobs = [make_job(title="Manual QA only role")]
     out = filter_jobs(jobs, exclude=["manual qa only"])

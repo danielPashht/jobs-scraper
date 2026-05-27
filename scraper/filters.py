@@ -8,7 +8,10 @@ from scraper.models import Job
 
 DEFAULT_INCLUDE_KEYWORDS = (
     "automation qa",
+    "qa automation",  # the common reversed order ("QA Automation Engineer")
+    "test automation",  # "Test Automation Engineer", "Mobile Test Automation"
     "sdet",
+    "engineer in test",  # SDET spelled out: "Software (Development) Engineer in Test"
     "test engineer",
     "qa engineer",
     "quality assurance",
