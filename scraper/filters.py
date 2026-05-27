@@ -23,7 +23,23 @@ DEFAULT_EXCLUDE_KEYWORDS = (
     "manual test",
     "manual tester",
     "intern",
+    # Speculative / "submit your CV" non-postings that boards sometimes surface.
+    "expression of interest",
 )
+
+# Exact-match (case-insensitive, stripped) junk titles — placeholder listings
+# boards occasionally publish. Substring excludes can't be used here because
+# e.g. "tst" would also strip "Pytest specialist".
+JUNK_TITLES: frozenset[str] = frozenset({
+    "tst",
+    "test",
+    "test job",
+    "test posting",
+})
+
+
+def is_junk_title(title: str) -> bool:
+    return title.strip().lower() in JUNK_TITLES
 
 APAC_HINTS = (
     "apac",
@@ -155,6 +171,8 @@ def filter_jobs(
     exclude = tuple(exclude)
     out: list[Job] = []
     for job in jobs:
+        if is_junk_title(job.title):
+            continue
         if remote_only and not job.remote:
             continue
         if exclude_us_only and is_us_only(job):

@@ -1,6 +1,6 @@
 # jobs-scraper
 
-Python CLI that scrapes web3/fintech job boards for SDET / Automation QA / test-engineer roles, filters by keyword, dedupes across sources, and prints a ranked table.
+Python CLI that scrapes remote job boards for SDET / Automation QA / test-engineer roles across all industries (web3, fintech, SaaS, anything), filters by keyword, dedupes across sources, and prints a ranked table.
 
 Replaces an earlier Claude-API "simulated listings" widget with real listings.
 
@@ -34,7 +34,7 @@ CLI flags:
 
 | Flag | Default | Notes |
 |---|---|---|
-| `--boards` | `web3career` | Repeatable; choices: `web3career`, `cryptojobslist` (stub) |
+| `--boards` | `web3career` | Repeatable; choices: `web3career`, `remoteok`, `weworkremotely`, `linkedin`, `cryptojobslist` (stub) |
 | `--keywords` | SDET/QA defaults | Case-insensitive substring match on title + tags + location |
 | `--exclude` | `manual qa only`, `intern` | Same matching as keywords |
 | `--max-pages` | `3` | Per board |
@@ -55,6 +55,9 @@ Ranked by:
 | Board | Status | Notes |
 |---|---|---|
 | web3.career | working | Static HTML, paginated `?page=N`, 1.5s inter-page delay |
+| remoteok.com | working | Public JSON API (`/api?tags=...`). General remote board across all industries — pulled tags: `qa`, `testing`. Edit `DEFAULT_TAGS` in `scraper/boards/remoteok.py` to widen. |
+| weworkremotely.com | working | Per-category RSS (stdlib `xml.etree`), 1s inter-category delay. |
+| linkedin.com | working | Public **guest** jobs endpoint (`jobs-guest/jobs/api/seeMoreJobPostings`), no auth. Requires a `keywords` query, so the board ships a boolean default query (`DEFAULT_KEYWORDS` in `scraper/boards/linkedin.py`) — unlike other boards this is a source-side filter, with the pipeline narrowing on top. Throttled hard: 3s inter-page delay + one-shot 20s backoff on HTTP 429. Avoids the authenticated Voyager API on purpose (account-ban risk). |
 | cryptojobslist.com | stub | Cloudflare challenge blocks httpx. Needs Playwright + stealth — see `scraper/boards/cryptojobslist.py` for the wiring instructions |
 
 ## Tests
@@ -127,13 +130,14 @@ The first run sends every job that passes the filters, since the dedup DB starts
 | `JOBS_DB_PATH` | `data/jobs.db` | SQLite file |
 | `JOBS_TZ` | `Asia/Ho_Chi_Minh` | zoneinfo name |
 | `JOBS_SCHEDULE_TIMES` | `09:00,21:00` | comma-separated `HH:MM` |
-| `JOBS_BOARDS` | `web3career,cryptojobslist` | comma-separated |
+| `JOBS_BOARDS` | `web3career,remoteok,weworkremotely,linkedin` | comma-separated |
 | `JOBS_MAX_PAGES` | `3` | per board |
 | `JOBS_MAX_AGE_DAYS` | `60` | age cutoff |
 | `PLAYWRIGHT_BROWSERS_PATH` | system default | needed for CJL |
 
 ## Next steps
 
+- Add WeWorkRemotely (RSS) and Himalayas next — both static, no auth
 - Add Remote3 / Built In via the Playwright path (low marginal effort)
 - Daily/weekly digest summary instead of every-run notifications
 - launchd plist so the bot survives reboot

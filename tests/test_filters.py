@@ -8,6 +8,7 @@ from scraper.filters import (
     deduplicate,
     filter_jobs,
     is_apac_friendly,
+    is_junk_title,
     is_recent,
     is_us_only,
     rank,
@@ -177,3 +178,36 @@ def test_filter_jobs_drops_old_postings():
     ]
     out = filter_jobs(jobs, max_age_days=60)
     assert {j.company for j in out} == {"Fresh"}
+
+
+# --- Junk-title / placeholder filtering ---
+
+@pytest.mark.parametrize(
+    "title,expected_junk",
+    [
+        ("tst", True),
+        ("TST", True),
+        (" Test ", True),
+        ("test job", True),
+        ("Test Engineer", False),
+        ("Pytest Specialist", False),  # must not catch "tst" as substring
+        ("SDET", False),
+    ],
+)
+def test_is_junk_title(title: str, expected_junk: bool):
+    assert is_junk_title(title) is expected_junk
+
+
+def test_filter_jobs_drops_junk_titles_but_keeps_real_qa():
+    # Mimics the two real RemoteOK false positives + a legit role.
+    jobs = [
+        make_job(title="tst", company="Stefanini", tags=["test", "testing", "quality assurance"]),
+        make_job(
+            title="Expression of Interest SMG Studio",
+            company="SMG Studio",
+            tags=["game", "testing", "quality assurance"],
+        ),
+        make_job(title="Test Engineer", company="LegitCo", tags=["quality assurance"]),
+    ]
+    out = filter_jobs(jobs)
+    assert [j.company for j in out] == ["LegitCo"]

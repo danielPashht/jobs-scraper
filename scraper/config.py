@@ -47,5 +47,5 @@ def load_settings() -> Settings:
         schedule_times=_parse_times(os.environ.get("JOBS_SCHEDULE_TIMES", "09:00,21:00")),
         max_pages=int(os.environ.get("JOBS_MAX_PAGES", "3")),
         max_age_days=int(os.environ.get("JOBS_MAX_AGE_DAYS", "60")),
-        boards=tuple(os.environ.get("JOBS_BOARDS", "web3career,cryptojobslist").split(",")),
+        boards=tuple(os.environ.get("JOBS_BOARDS", "web3career,remoteok,weworkremotely,linkedin").split(",")),
     )
