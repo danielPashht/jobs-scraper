@@ -61,6 +61,30 @@ The profile has two parts:
 
 If there's no `search.toml`, the project runs on its built-in defaults (SDET/QA, Asia-based-open-to-Europe), so it works out of the box.
 
+### Watching jobs for more than one person
+
+One bot can run several searches — e.g. your own SDET hunt plus a friend's BD hunt. Give each person a profile in `profiles/` and list them in `.env`:
+
+```bash
+JOBS_PROFILES=search.toml,profiles/anastasia.toml
+```
+
+Each run executes one pipeline per profile and pushes each one's new jobs to the subscriber chats, labeled with the watcher. Two `[search]` keys matter here:
+
+- `watcher` — unique name; namespaces that person's dedup state so the same listing can be reported to each of them independently. Omitted → `"default"`, which is where a single-watcher setup's history lives.
+- `boards` — board subset for this watcher only, e.g. `boards = ["linkedin"]` (LinkedIn is the best single source for non-engineering roles). Empty → `JOBS_BOARDS` / `--boards`.
+
+By default every subscriber receives every watcher's feed. To give each person only their own jobs in their own Telegram chat, allowlist them and add a routing entry:
+
+```bash
+TG_ALLOWED_USER_IDS=736345924,499184201
+JOBS_WATCHER_USERS=anastasia=499184201
+```
+
+A user named in `JOBS_WATCHER_USERS` receives **only** the watchers they're named for; watchers named nowhere (e.g. your own `default`) go to every *other* subscriber. So one line both hands Anastasia her BD feed and keeps your SDET feed out of her chat. Each person then sends the bot `/start` themselves; `/fetch` only runs the watchers routed to whoever asked.
+
+`/setup-search` → "Adding another watcher" runs the onboarding questionnaire and writes the file; see [`profiles/README.md`](profiles/README.md). Restart the bot afterwards.
+
 ## Output
 
 Ranked by:
@@ -117,7 +141,7 @@ A long-running bot that scrapes on a schedule and pushes new jobs to your Telegr
    ```bash
    .venv/bin/pip install -e '.[cf]'
    ```
-3. Find your Telegram `user_id`: start the bot, message it `/whoami`, copy the `user_id`, paste it as `TG_ALLOWED_USER_ID` in `.env`, restart. The bot ignores all other users.
+3. Find your Telegram `user_id`: start the bot, message it `/whoami`, copy the `user_id`, add it to `TG_ALLOWED_USER_IDS` in `.env` (comma-separated for several people), restart. The bot ignores everyone else.
 
 ### Running
 
@@ -132,8 +156,8 @@ tail -f logs/bot.log             # live logs
 
 ### Bot UX
 
-- `/start` — registers your chat for scheduled pushes and shows the "Fetch now" keyboard.
-- `/fetch` or tapping **Fetch now** — runs the full pipeline immediately. Reply is either "No new jobs." or one or more messages listing the new ones with title / company / salary / age / location / Apply link.
+- `/start` — registers your chat for scheduled pushes, lists the watchers routed to you, and shows the "Fetch now" keyboard.
+- `/fetch` or tapping **Fetch now** — runs your own watchers immediately. Reply is either "No new jobs." or one or more messages listing the new ones with title / company / salary / age / location / Apply link.
 j- Scheduled fetches at 09:00 and 21:00 in `Asia/Ho_Chi_Minh` (configurable via `JOBS_TZ` / `JOBS_SCHEDULE_TIMES`).
 
 The first run sends every job that passes the filters, since the dedup DB starts empty.
@@ -143,13 +167,15 @@ The first run sends every job that passes the filters, since the dedup DB starts
 | Var | Default | Notes |
 |---|---|---|
 | `TG_BOT_TOKEN` | — | required |
-| `TG_ALLOWED_USER_ID` | — | required; first /whoami tells you yours |
+| `TG_ALLOWED_USER_IDS` | — | required; comma-separated. `/whoami` tells each person theirs. Legacy `TG_ALLOWED_USER_ID` still works |
+| `JOBS_WATCHER_USERS` | — | `watcher=user_id[,user_id];…` — route feeds per person |
 | `JOBS_DB_PATH` | `data/jobs.db` | SQLite file |
 | `JOBS_TZ` | `Asia/Ho_Chi_Minh` | zoneinfo name |
 | `JOBS_SCHEDULE_TIMES` | `09:00,21:00` | comma-separated `HH:MM` |
 | `JOBS_BOARDS` | `web3career,remoteok,weworkremotely,linkedin` | comma-separated |
 | `JOBS_MAX_PAGES` | `3` | per board |
 | `JOBS_MAX_AGE_DAYS` | `60` | age cutoff |
+| `JOBS_PROFILES` | `search.toml` | comma-separated profiles — one per watched person |
 | `PLAYWRIGHT_BROWSERS_PATH` | system default | needed for CJL |
 
 > The role you're searching for (keywords + location eligibility) is **not** in

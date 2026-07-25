@@ -3,7 +3,12 @@ from __future__ import annotations
 import textwrap
 
 from scraper.filters import DEFAULT_INCLUDE_KEYWORDS, is_eligible, rank
-from scraper.search_profile import SearchProfile, load_profile
+from scraper.search_profile import (
+    DEFAULT_WATCHER,
+    SearchProfile,
+    load_profile,
+    load_profiles,
+)
 from tests.test_filters import make_job
 
 
@@ -69,6 +74,46 @@ def test_block_us_states_toggle():
     assert is_eligible(j, block_us_states=True) is False
     # With the toggle off and no other blocked token, the bare state code is kept.
     assert is_eligible(j, block_us_states=False) is True
+
+
+def _write_watcher_profile(tmp_path, name: str, boards: str = "") -> object:
+    f = tmp_path / f"{name}.toml"
+    f.write_text(
+        f'[search]\nwatcher = "{name}"\nrole = "BD"\n'
+        f'include_keywords = ["business development"]\n{boards}'
+    )
+    return f
+
+
+def test_watcher_and_boards_default_to_single_watcher_behaviour(tmp_path):
+    p = load_profile(tmp_path / "nope.toml")
+    assert p.watcher == DEFAULT_WATCHER
+    assert p.boards == ()
+    # The default watcher labels its feed by role, not by watcher key.
+    assert p.display_name == "SDET / Automation QA"
+
+
+def test_load_profile_reads_watcher_and_boards(tmp_path):
+    f = _write_watcher_profile(tmp_path, "anastasia", boards='boards = ["linkedin"]\n')
+    p = load_profile(f)
+    assert p.watcher == "anastasia"
+    assert p.boards == ("linkedin",)
+    assert p.display_name == "anastasia · BD"
+
+
+def test_load_profiles_returns_one_per_path(tmp_path):
+    a = _write_watcher_profile(tmp_path, "ann")
+    b = _write_watcher_profile(tmp_path, "bob")
+    profiles = load_profiles([a, b, tmp_path / "missing.toml"])
+    assert [p.watcher for p in profiles] == ["ann", "bob", DEFAULT_WATCHER]
+
+
+def test_load_profiles_skips_duplicate_watcher_keys(tmp_path):
+    a = _write_watcher_profile(tmp_path, "ann")
+    dupe = tmp_path / "ann-copy.toml"
+    dupe.write_text('[search]\nwatcher = "ann"\nrole = "Other"\n')
+    profiles = load_profiles([a, dupe])
+    assert [p.role for p in profiles] == ["BD"]
 
 
 def test_rank_custom_prioritize_floats_chosen_region_first():

@@ -10,12 +10,20 @@ When no ``search.toml`` exists, ``load_profile()`` returns the built-in defaults
 which reproduce the original SDET/QA + Asia-nomad behaviour — so the project
 works out of the box, and a new user only needs the profile to change *what* it
 searches for.
+
+**Multiple watchers.** One bot can watch jobs for several people: list several
+profile files in ``JOBS_PROFILES`` (e.g. ``search.toml,profiles/anastasia.toml``)
+and ``load_profiles()`` returns one ``SearchProfile`` each. A profile's
+``watcher`` key namespaces its dedup state in the DB (so the same listing can be
+pushed to two people) and labels its results; its optional ``boards`` key lets
+one watcher scrape a different board set than the ops default.
 """
 
 from __future__ import annotations
 
 import logging
 import tomllib
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -31,6 +39,7 @@ log = logging.getLogger(__name__)
 
 DEFAULT_ROLE = "SDET / Automation QA"
 DEFAULT_PROFILE_PATH = Path("search.toml")
+DEFAULT_WATCHER = "default"
 
 
 @dataclass(frozen=True)
@@ -43,6 +52,19 @@ class SearchProfile:
     blocked_regions: tuple[str, ...] = DEFAULT_BLOCKED_REGIONS
     block_us_states: bool = True
     prioritize: tuple[str, ...] = DEFAULT_PRIORITIZE
+    # Who this search is for. Namespaces the bot's dedup state, so two watchers
+    # can each be told about the same listing. The historical single-watcher
+    # state lives under DEFAULT_WATCHER.
+    watcher: str = DEFAULT_WATCHER
+    # Boards this watcher wants. Empty → whatever JOBS_BOARDS / the CLI says.
+    boards: tuple[str, ...] = ()
+
+    @property
+    def display_name(self) -> str:
+        """Label for output — the watcher's name, or the role for the default."""
+        if self.watcher and self.watcher != DEFAULT_WATCHER:
+            return f"{self.watcher} · {self.role}"
+        return self.role
 
 
 def _as_tuple(value: object, default: tuple[str, ...]) -> tuple[str, ...]:
@@ -77,4 +99,29 @@ def load_profile(path: str | Path | None = None) -> SearchProfile:
         blocked_regions=_as_tuple(elig.get("blocked_regions"), DEFAULT_BLOCKED_REGIONS),
         block_us_states=bool(elig.get("block_us_states", True)),
         prioritize=_as_tuple(elig.get("prioritize"), DEFAULT_PRIORITIZE),
+        watcher=str(search.get("watcher") or DEFAULT_WATCHER),
+        boards=_as_tuple(search.get("boards"), ()),
     )
+
+
+def load_profiles(paths: Iterable[str | Path] | None = None) -> list[SearchProfile]:
+    """Load one profile per path (see ``Settings.profiles`` / ``JOBS_PROFILES``).
+
+    Duplicate ``watcher`` keys are dropped — two profiles sharing a watcher would
+    share dedup state and silently hide each other's jobs.
+    """
+    paths = list(paths) if paths else [DEFAULT_PROFILE_PATH]
+    out: list[SearchProfile] = []
+    seen: set[str] = set()
+    for path in paths:
+        profile = load_profile(path)
+        if profile.watcher in seen:
+            log.warning(
+                "profile %s reuses watcher=%r — skipping (watcher keys must be unique)",
+                path,
+                profile.watcher,
+            )
+            continue
+        seen.add(profile.watcher)
+        out.append(profile)
+    return out

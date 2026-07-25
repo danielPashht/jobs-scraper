@@ -84,6 +84,49 @@ loop back to step 1 and broaden `include_keywords`. If the wrong regions show
 up, revisit the eligibility lists. Confirm the displayed "searching for: <role>"
 line matches what they wanted.
 
+## Adding another watcher (a second person)
+
+One bot can watch jobs for several people. Each gets their own profile file in
+`profiles/` and a unique `watcher` key; results land in the subscriber chats
+labeled per watcher, with per-watcher dedup state in `data/jobs.db`.
+
+If the person has a CV, read it first and use it to prefill every answer below —
+then only ask what the CV can't tell you. Ask this **questionnaire** (one
+`AskUserQuestion` call, CV-derived defaults as the first option):
+
+1. **Role families** — the tightest title set (their current role), vs. adjacent
+   families they'd take (e.g. analyst for a BD person with a BA background), vs.
+   the widest net. Narrow = less noise; they can widen later.
+2. **Seniority filter** — drop intern/junior? Also drop director/VP/C-level
+   (roles above their years of experience)? Or no seniority filter at all.
+3. **Where can they work** — current base, prior work countries (visa/permit
+   history), relocation appetite. Maps to `eligible_regions` / `blocked_regions`
+   / `prioritize`, same as step 2 above.
+4. **Industry focus** — all industries (default; the project is role-agnostic),
+   or add industry keywords so a sector floats up in ranking.
+5. **Boards** — all of `JOBS_BOARDS`, or a subset (e.g. LinkedIn only, which is
+   the best single source for non-engineering roles).
+6. **Delivery** — into an existing subscriber's chat (default; with no routing
+   table every watcher's feed goes to every subscriber), or their own chat: add
+   their user id to `TG_ALLOWED_USER_IDS` and a `JOBS_WATCHER_USERS` entry
+   (`<watcher>=<user_id>`), then have them `/start` the bot. Being named in the
+   routing table also stops the other watchers' feeds reaching them.
+
+Then:
+
+- Write `profiles/<name>.toml` from `search.example.toml`, plus `[search]`
+  `watcher = "<name>"` and `boards = [...]` if they want a subset. Record the
+  questionnaire answers as comments at the top of the file — that's the audit
+  trail for why the keywords look like they do.
+- Keep `exclude_keywords` **non-empty**: an empty list falls back to the built-in
+  QA excludes (`_as_tuple` in `search_profile.py`). If they want no exclusions,
+  put one harmless token in (e.g. `"expression of interest"`).
+- Append the path to `JOBS_PROFILES` in `.env`
+  (`JOBS_PROFILES=search.toml,profiles/<name>.toml`).
+- Verify: `.venv/bin/python -m scraper.cli --profile profiles/<name>.toml`
+  (the profile's own `boards` apply automatically).
+- Restart the bot: `./scripts/stop-bot.sh && sleep 8 && ./scripts/run-bot.sh --detach`.
+
 ## Notes
 
 - `search.toml` and `.env` are gitignored, so a contributor's personal setup

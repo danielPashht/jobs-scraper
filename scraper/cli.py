@@ -31,9 +31,11 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--boards",
         nargs="+",
-        default=["web3career"],
+        default=None,
         choices=sorted(ALL_BOARDS.keys()),
-        help="Boards to scrape (default: web3career)",
+        help=(
+            "Boards to scrape. Default: the profile's `boards`, else web3career."
+        ),
     )
     # Keyword / eligibility flags default to None → fall back to the profile.
     p.add_argument(
@@ -100,6 +102,7 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     profile = load_profile(args.profile)
+    boards = args.boards or list(profile.boards) or ["web3career"]
     keywords = args.keywords if args.keywords is not None else list(profile.include_keywords)
     exclude = args.exclude if args.exclude is not None else list(profile.exclude_keywords)
     exclude_ineligible = (
@@ -107,10 +110,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.exclude_ineligible is not None
         else profile.eligibility_enabled
     )
-    logging.info("searching for: %s", profile.role)
+    logging.info("searching for: %s (boards: %s)", profile.display_name, ",".join(boards))
 
     ranked = run_pipeline(
-        boards=args.boards,
+        boards=boards,
         max_pages=args.max_pages,
         keywords=keywords,
         exclude=exclude,

@@ -7,8 +7,10 @@ __pycache__/
 # Secrets
 .env
 
-# Local search profile (copy from search.example.toml)
+# Local search profiles (copy from search.example.toml) — personal, one per
+# watcher. profiles/README.md is committed; the .toml files are not.
 search.toml
+profiles/*.toml
 
 # Local data
 data/

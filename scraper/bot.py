@@ -22,7 +22,8 @@ from scraper.db import Repo
 from scraper.filters import DEFAULT_PRIORITIZE, is_prioritized
 from scraper.models import Job
 from scraper.pipeline import run_pipeline
-from scraper.search_profile import SearchProfile, load_profile
+from scraper.routing import Router
+from scraper.search_profile import SearchProfile, load_profiles
 
 log = logging.getLogger(__name__)
 
@@ -30,6 +31,10 @@ FETCH_BUTTON_LABEL = "Fetch now"
 MAX_MESSAGE_CHARS = 3800  # Telegram hard cap is 4096; leave headroom.
 SEND_RETRIES = 3
 SEND_BACKOFF_SEC = 2.0
+# Gap between watchers in one run. Each watcher re-scrapes the same boards from
+# the same IP; LinkedIn in particular 429s on bursts, so don't run them back to
+# back.
+WATCHER_GAP_SEC = 20.0
 
 
 # --- formatting ---
@@ -82,22 +87,37 @@ def format_jobs_message(
     return chunks
 
 
+def _status_message(app_data: dict, user_id: int, opening: str) -> str:
+    """The shared 'here's what I watch for you' blurb (/start and startup notify)."""
+    settings: Settings = app_data["settings"]
+    router: Router = app_data["router"]
+    watching = (
+        "; ".join(p.display_name for p in router.watchers_for(app_data["profiles"], user_id))
+        or "nothing configured"
+    )
+    times = ", ".join(f"{h:02d}:{m:02d}" for h, m in settings.schedule_times)
+    return (
+        f"{opening}\nWatching for you: {watching}\n"
+        f"Scheduled fetches: {times} ({settings.tz.key})."
+    )
+
+
 # --- auth ---
 
 def _is_allowed(update: Update, settings: Settings) -> bool:
     user = update.effective_user
     if user is None:
         return False
-    if settings.tg_allowed_user_id is None:
+    if not settings.tg_allowed_user_ids:
         log.warning(
-            "no TG_ALLOWED_USER_ID set — rejecting request from user_id=%d (chat_id=%s). "
-            "Set TG_ALLOWED_USER_ID=%d in .env and restart.",
+            "no TG_ALLOWED_USER_IDS set — rejecting request from user_id=%d (chat_id=%s). "
+            "Set TG_ALLOWED_USER_IDS=%d in .env and restart.",
             user.id,
             update.effective_chat.id if update.effective_chat else None,
             user.id,
         )
         return False
-    return user.id == settings.tg_allowed_user_id
+    return user.id in settings.tg_allowed_user_ids
 
 
 # --- handlers ---
@@ -111,9 +131,11 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     if not _is_allowed(update, settings):
-        await update.message.reply_text(
+        await _safe_send(
+            context.bot,
+            chat.id,
             f"This bot is private.\nYour user_id is {user.id}.\n"
-            "Set TG_ALLOWED_USER_ID in .env and restart the bot if this is you."
+            "Add it to TG_ALLOWED_USER_IDS in .env and restart the bot if this is you.",
         )
         return
 
@@ -121,10 +143,11 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     keyboard = ReplyKeyboardMarkup(
         [[KeyboardButton(FETCH_BUTTON_LABEL)]], resize_keyboard=True
     )
-    times = ", ".join(f"{h:02d}:{m:02d}" for h, m in settings.schedule_times)
-    await update.message.reply_text(
-        f"Jobs bot ready.\nScheduled fetches: {times} ({settings.tz.key}).\n"
-        f"Tap '{FETCH_BUTTON_LABEL}' or send /fetch to run now.",
+    body = _status_message(context.application.bot_data, user.id, "Jobs bot ready.")
+    await _safe_send(
+        context.bot,
+        chat.id,
+        f"{body}\nTap '{FETCH_BUTTON_LABEL}' or send /fetch to run now.",
         reply_markup=keyboard,
     )
 
@@ -139,21 +162,49 @@ async def cmd_whoami(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 async def cmd_fetch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     settings: Settings = context.application.bot_data["settings"]
+    user = update.effective_user
+    chat = update.effective_chat
+    if user is None or chat is None:
+        return
     if not _is_allowed(update, settings):
         return
-    chat_id = update.effective_chat.id
-    await context.bot.send_message(chat_id, "Fetching…")
-    await _run_and_report(context, [chat_id])
+    await _safe_send(context.bot, chat.id, "Fetching…")
+    # Only this user's own watchers run — a manual fetch never pushes (or
+    # consumes the dedup state of) someone else's feed.
+    await _run_and_report(context, [(chat.id, user.id)])
 
 
-async def _run_and_report(context: ContextTypes.DEFAULT_TYPE, chat_ids: list[int]) -> None:
+async def _run_and_report(
+    context: ContextTypes.DEFAULT_TYPE, subscribers: list[tuple[int, int]]
+) -> None:
+    """Run each watcher whose recipients are among `subscribers` and push its jobs."""
+    router: Router = context.application.bot_data["router"]
+    profiles: list[SearchProfile] = context.application.bot_data["profiles"]
+    ran = 0
+    for profile in profiles:
+        chat_ids = router.recipients(subscribers, profile.watcher)
+        if not chat_ids:
+            log.info("watcher=%s has no recipients here — skipping", profile.watcher)
+            continue
+        if ran:
+            await asyncio.sleep(WATCHER_GAP_SEC)
+        ran += 1
+        await _run_one_profile(context, chat_ids, profile)
+
+
+async def _run_one_profile(
+    context: ContextTypes.DEFAULT_TYPE,
+    chat_ids: list[int],
+    profile: SearchProfile,
+) -> None:
     settings: Settings = context.application.bot_data["settings"]
-    profile: SearchProfile = context.application.bot_data["profile"]
     repo: Repo = context.application.bot_data["repo"]
+    label = html.escape(profile.display_name)
+    boards = profile.boards or settings.boards
     try:
         jobs = await asyncio.to_thread(
             run_pipeline,
-            boards=settings.boards,
+            boards=boards,
             max_pages=settings.max_pages,
             max_age_days=settings.max_age_days,
             keywords=profile.include_keywords,
@@ -164,21 +215,36 @@ async def _run_and_report(context: ContextTypes.DEFAULT_TYPE, chat_ids: list[int
             block_us_states=profile.block_us_states,
             prioritize=profile.prioritize,
         )
-    except Exception as exc:  # noqa: BLE001
-        log.exception("pipeline failed")
+    except Exception as exc:  # noqa: BLE001 — one watcher's failure isn't the others'
+        log.exception("pipeline failed for watcher=%s", profile.watcher)
         for cid in chat_ids:
-            await context.bot.send_message(cid, f"Fetch failed: {html.escape(str(exc))}")
+            await _safe_send(
+                context.bot,
+                cid,
+                f"Fetch failed for {label}: {html.escape(str(exc))}",
+                parse_mode=ParseMode.HTML,
+            )
         return
 
-    new_jobs = await asyncio.to_thread(repo.filter_new, jobs)
-    log.info("pipeline: %d total, %d new (vs DB)", len(jobs), len(new_jobs))
+    new_jobs = await asyncio.to_thread(repo.filter_new, jobs, profile.watcher)
+    log.info(
+        "pipeline[%s]: %d total, %d new (vs DB)", profile.watcher, len(jobs), len(new_jobs)
+    )
 
     if not new_jobs:
         for cid in chat_ids:
-            await _safe_send(context.bot, cid, "No new jobs.")
+            await _safe_send(
+                context.bot,
+                cid,
+                f"No new jobs for {label}.",
+                parse_mode=ParseMode.HTML,
+            )
         return
 
-    chunks = format_jobs_message(new_jobs, prioritize=profile.prioritize)
+    header = (
+        f"<b>{len(new_jobs)} new job{'s' if len(new_jobs) != 1 else ''}</b> — {label}"
+    )
+    chunks = format_jobs_message(new_jobs, header=header, prioritize=profile.prioritize)
     for cid in chat_ids:
         for chunk in chunks:
             await _safe_send(
@@ -189,7 +255,7 @@ async def _run_and_report(context: ContextTypes.DEFAULT_TYPE, chat_ids: list[int
                 disable_web_page_preview=True,
             )
 
-    await asyncio.to_thread(repo.mark_reported, new_jobs)
+    await asyncio.to_thread(repo.mark_reported, new_jobs, profile.watcher)
 
 
 async def on_fetch_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -201,12 +267,12 @@ async def on_fetch_button(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 async def scheduled_fetch(context: ContextTypes.DEFAULT_TYPE) -> None:
     repo: Repo = context.application.bot_data["repo"]
-    chat_ids = await asyncio.to_thread(repo.list_subscriber_chat_ids)
-    if not chat_ids:
+    subscribers = await asyncio.to_thread(repo.list_subscribers)
+    if not subscribers:
         log.info("scheduled fetch: no subscribers, skipping")
         return
-    log.info("scheduled fetch: pushing to %d subscriber(s)", len(chat_ids))
-    await _run_and_report(context, chat_ids)
+    log.info("scheduled fetch: pushing to %d subscriber(s)", len(subscribers))
+    await _run_and_report(context, subscribers)
 
 
 # --- lifecycle ---
@@ -243,18 +309,21 @@ async def _on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def _notify_started(app: Application) -> None:
     """Broadcast a 'Bot started!' message to every known subscriber on startup."""
     repo: Repo = app.bot_data["repo"]
-    settings: Settings = app.bot_data["settings"]
-    chat_ids = await asyncio.to_thread(repo.list_subscriber_chat_ids)
-    if not chat_ids:
+    subscribers = await asyncio.to_thread(repo.list_subscribers)
+    if not subscribers:
         log.info("startup: no subscribers yet, skipping 'Bot started!' notification")
         return
-    times = ", ".join(f"{h:02d}:{m:02d}" for h, m in settings.schedule_times)
-    msg = f"Bot started.\nScheduled fetches: {times} ({settings.tz.key})."
-    for cid in chat_ids:
-        await _safe_send(app.bot, cid, msg)
+    for chat_id, user_id in subscribers:
+        await _safe_send(
+            app.bot, chat_id, _status_message(app.bot_data, user_id, "Bot started.")
+        )
 
 
-def build_app(settings: Settings, repo: Repo, profile: SearchProfile | None = None) -> Application:
+def build_app(
+    settings: Settings,
+    repo: Repo,
+    profiles: list[SearchProfile] | None = None,
+) -> Application:
     # Beefier HTTP client — Vietnamese ISP/Telegram CDN combo benefits from
     # longer connect/read timeouts and a larger pool.
     request = HTTPXRequest(
@@ -272,7 +341,8 @@ def build_app(settings: Settings, repo: Repo, profile: SearchProfile | None = No
     )
     app.bot_data["settings"] = settings
     app.bot_data["repo"] = repo
-    app.bot_data["profile"] = profile or load_profile()
+    app.bot_data["profiles"] = profiles or load_profiles(settings.profiles)
+    app.bot_data["router"] = Router(settings.watcher_users)
     app.add_error_handler(_on_error)
 
     app.add_handler(CommandHandler("start", cmd_start))
@@ -305,19 +375,32 @@ def main() -> None:
     logging.getLogger("httpcore").setLevel(logging.WARNING)
 
     settings = load_settings()
-    profile = load_profile()
+    profiles = load_profiles(settings.profiles)
     repo = Repo(settings.db_path)
     log.info(
-        "Bot booting. role=%r db=%s reported_so_far=%d allowed_user_id=%s schedule=%s tz=%s",
-        profile.role,
+        "Bot booting. db=%s reported_so_far=%d allowed_user_ids=%s schedule=%s tz=%s",
         settings.db_path,
         repo.count_reported(),
-        settings.tg_allowed_user_id,
+        ",".join(str(i) for i in settings.tg_allowed_user_ids),
         settings.schedule_times,
         settings.tz.key,
     )
+    for profile in profiles:
+        routed = settings.watcher_users.get(profile.watcher)
+        log.info(
+            "watcher=%s role=%r boards=%s reported_so_far=%d users=%s",
+            profile.watcher,
+            profile.role,
+            ",".join(profile.boards or settings.boards),
+            repo.count_reported(profile.watcher),
+            ",".join(str(i) for i in routed) if routed else "(unclaimed subscribers)",
+        )
+    # Surface routing typos at boot rather than as a silently missing feed.
+    Router(settings.watcher_users).warn_on_misconfiguration(
+        profiles, settings.tg_allowed_user_ids
+    )
 
-    app = build_app(settings, repo, profile)
+    app = build_app(settings, repo, profiles)
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
