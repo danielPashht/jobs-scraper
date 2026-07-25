@@ -50,7 +50,7 @@ _REMOTE_HINTS = (
 )
 
 # "$2000–2500", "от 90 000 ₽", "70 000 до 200 000 руб.", "€3k"
-_SALARY_RES = (
+_SALARY_PATTERNS = (
     re.compile(r"[$€]\s?\d[\d\s.,]*(?:\s?[kк])?(?:\s?[-–—]\s?[$€]?\s?\d[\d\s.,]*(?:\s?[kк])?)?"),
     re.compile(
         r"(?:от\s*)?\d[\d\s]{2,}(?:\s*(?:до|[-–—])\s*\d[\d\s]{2,})?\s*(?:₽|руб\.?|rub|тенге|₸)",
@@ -221,6 +221,13 @@ class TelegramJobsBoard(Board):
 
     @staticmethod
     def _preview(message: Tag) -> dict[str, str]:
+        """Telegram's link-preview card for a post, as a dict.
+
+        Keys, all optional because Telegram renders whichever parts the target
+        page exposed: ``href`` (the linked page — present whenever a preview
+        exists), ``site``, ``title``, ``description``. Returns an empty dict when
+        the post has no preview, so callers must not index blindly.
+        """
         block = message.select_one(".tgme_widget_message_link_preview")
         if block is None:
             return {}
@@ -277,20 +284,20 @@ class TelegramJobsBoard(Board):
                 # Either "Компания: Acme", or the label alone with the name on a
                 # following line — sometimes behind a second label
                 # ("Работодатель:" / "Компания" / "ROX PRO").
-                value = cls._meaningful(
+                value = cls._first_named_value(
                     [labelled.group(1), *lines[i + 1 : i + 3]]
                 )
                 if value:
                     return value
             # "✅" on its own line marks the employer on the line that follows.
             if line == "✅":
-                value = cls._meaningful(lines[i + 1 : i + 3])
+                value = cls._first_named_value(lines[i + 1 : i + 3])
                 if value:
                     return value
         return None
 
     @staticmethod
-    def _meaningful(candidates: list[str]) -> str | None:
+    def _first_named_value(candidates: list[str]) -> str | None:
         """First candidate that carries a real name — label words don't count."""
         for candidate in candidates:
             value = candidate.strip(" :—-")
@@ -307,7 +314,7 @@ class TelegramJobsBoard(Board):
 
     @staticmethod
     def _salary(body: str) -> str | None:
-        for pattern in _SALARY_RES:
+        for pattern in _SALARY_PATTERNS:
             found = pattern.search(body)
             if found:
                 return re.sub(r"\s+", " ", found.group(0)).strip()

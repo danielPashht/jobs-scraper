@@ -1,9 +1,9 @@
 """Parsing tests for the Telegram board — fixtures only, no HTTP.
 
-The fixtures mirror the three real post shapes seen on the configured channels:
+The fixtures mirror the four real post shapes seen on the configured channels:
 a full Russian ad (Anastasia's reference vacancy), a link-only post whose role
-lives in Telegram's hh.ru link preview, and a post whose title line is split by
-an inline link.
+lives in Telegram's hh.ru link preview, a post whose title line is split by an
+inline link, and an ad whose employer sits behind two label lines.
 """
 
 from __future__ import annotations
@@ -39,8 +39,10 @@ LINK_ONLY = """
   <div class="tgme_widget_message_text">https://hh.ru/vacancy/135562561</div>
   <a class="tgme_widget_message_link_preview" href="https://hh.ru/vacancy/135562561">
     <div class="link_preview_site_name">hh.ru</div>
-    <div class="link_preview_title">Вакансия Руководитель проектов ОКР в Москве, работа в компании Моторика</div>
-    <div class="link_preview_description">Зарплата: от 90 000 руб. Москва. Требуемый опыт: 3–6 лет.</div>
+    <div class="link_preview_title">Вакансия Руководитель проектов ОКР в Москве,
+      работа в компании Моторика</div>
+    <div class="link_preview_description">Зарплата: от 90 000 руб. Москва.
+      Требуемый опыт: 3–6 лет.</div>
   </a>
   <div class="tgme_widget_message_footer">
     <time datetime="2026-07-24T06:00:00+00:00"></time>

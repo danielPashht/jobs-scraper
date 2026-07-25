@@ -187,7 +187,8 @@ The first run sends every job that passes the filters, since the dedup DB starts
 
 ## Next steps
 
-- Add WeWorkRemotely (RSS) and Himalayas next — both static, no auth
+- Add Himalayas and Wellfound — both static, no auth (WeWorkRemotely shipped)
 - Add Remote3 / Built In via the Playwright path (low marginal effort)
+- hh.ru and superjob.ru boards — both need a free registered app key (hh's API 403s behind ddos-guard without one)
 - Daily/weekly digest summary instead of every-run notifications
 - launchd plist so the bot survives reboot

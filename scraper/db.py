@@ -150,6 +150,16 @@ class Repo:
         return found
 
     def mark_reported(self, jobs: Iterable[Job], watcher: str = DEFAULT_WATCHER) -> int:
+        """Record `jobs` as already reported to `watcher`.
+
+        Parameters:
+            jobs: the jobs just pushed; each is stored under (watcher, url).
+            watcher: whose feed they were sent to. Defaults to the historical
+                single-watcher namespace.
+
+        Returns the number of rows actually inserted — rows this watcher already
+        had are ignored, so it can be lower than ``len(jobs)``.
+        """
         rows = [
             (
                 watcher,

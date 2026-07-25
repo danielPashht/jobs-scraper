@@ -15,6 +15,17 @@
 # A human label for the role — shown in CLI/bot output. Free text.
 role = "SDET / Automation QA"
 
+# Who this search is for. Optional; defaults to "default". It namespaces the
+# bot's dedup state (so two people can each be told about the same listing) and
+# labels this search's results. Only needed when one bot watches jobs for more
+# than one person — see profiles/README.md.
+# watcher = "yourname"
+
+# Boards this search should scrape, overriding JOBS_BOARDS / --boards. Optional;
+# empty means "whatever the ops config says". Available: web3career, remoteok,
+# weworkremotely, linkedin, telegram, cryptojobslist (stub).
+# boards = ["linkedin", "telegram"]
+
 # Case-insensitive substring keywords matched against title + tags + location.
 # A job is KEPT when it matches ANY include keyword and NO exclude keyword.
 # These also drive the boards that need a server-side query: LinkedIn ORs them
@@ -45,6 +56,25 @@ exclude_keywords = [
     "expression of interest",
 ]
 
+# ── Per-board source settings (all optional) ─────────────────────────────────
+# A `[boards.<name>]` table is handed to that board as `self.options`. Boards
+# that need nothing ignore it. Only these two take options today:
+#
+# [boards.linkedin]
+# # Countries/cities to sweep, one search each. Default: ["Worldwide"].
+# # A NON-ENGLISH query returns nothing against "Worldwide" — pin it to a
+# # country. Prefer a city over an ambiguous country name ("Tbilisi", not
+# # "Georgia", which returns the US state).
+# locations = ["Worldwide", "Cyprus"]
+# max_requests = 12          # locations × pages cap; logs when it truncates
+#
+# [boards.telegram]
+# # Public channels to read via t.me/s/<channel> (no auth). Required for this
+# # board — without it, it warns and yields nothing.
+# channels = ["pm_vacancy", "product_jobs"]
+# queries = ["проект"]       # optional in-channel search, on top of the feed
+# max_requests = 30
+
 [eligibility]
 # Filter out jobs locked to a region you can't work from.
 #
@@ -52,6 +82,12 @@ exclude_keywords = [
 # DROPPED if it matches any `blocked_regions` token (or, when `block_us_states`
 # is true, a US "City, ST" code like "Austin, TX"). Jobs with no location
 # signal at all are kept (ambiguous → keep, so you don't miss good roles).
+#
+# ⚠️ Tokens are substrings matched against title + tags + location, and an
+# eligible match WINS over a blocked one — so never put a word that occurs in
+# job titles in `eligible_regions`. "remote" ("EPC Project Manager - Remote"),
+# "international" ("BD Manager - International") and "georgia" (the US state)
+# each keep listings your `blocked_regions` were meant to drop.
 #
 # Set `enabled = false` to skip region filtering entirely (keep everything).
 enabled = true

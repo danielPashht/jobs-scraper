@@ -1,3 +1,11 @@
+"""Watcher → Telegram-user routing.
+
+Covers the `Router` rule itself (named watchers reach only their users; unnamed
+ones reach everyone the table doesn't claim) plus the handler-level consequence:
+a manual /fetch must run exactly the requesting user's watchers, so it can't
+consume someone else's dedup state.
+"""
+
 from __future__ import annotations
 
 import asyncio

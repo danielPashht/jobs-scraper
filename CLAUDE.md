@@ -16,6 +16,7 @@ scraper/
   models.py         # pydantic `Job` (dedup key = sha1(title|company))
   config.py         # env-driven Settings dataclass — secrets/ops only (TG_*, JOBS_*)
   db.py             # SQLite dedup store for the bot, keyed per watcher
+  routing.py        # Router — which watcher's jobs reach which Telegram user (JOBS_WATCHER_USERS)
   output.py         # rich table / CSV / JSON writers
   boards/
     base.py         # abstract Board(client, *, keywords) → Iterable[Job]
@@ -80,7 +81,7 @@ watcher's run is reported and the next still runs. `Repo.filter_new` /
 rebuilds the old url-only-PK table on first open. `Repo.forget_reported(watcher)`
 clears one watcher's state (used when a feed was consumed by the wrong chat).
 
-**Routing** (`_recipients` in `bot.py`, `JOBS_WATCHER_USERS` in `.env`, format
+**Routing** (`Router` in `scraper/routing.py`, `JOBS_WATCHER_USERS` in `.env`, format
 `watcher=user_id[,user_id];…`): a watcher named in the table is pushed only to
 those users, and users named anywhere in the table receive only the watchers
 they're named for. Unnamed watchers go to every subscriber the table doesn't
@@ -116,7 +117,7 @@ Required env (`.env`): `TG_BOT_TOKEN`, `TG_ALLOWED_USER_IDS`. Optional: `JOBS_BO
 
 ## Tests
 
-`pytest` — 55 tests, all offline. Cover filter matching, exclude rules, dedup, prioritization/ranking, age cutoff, parameterized eligibility, `search.toml` loading + multi-watcher profile loading (`tests/test_search_profile.py`), per-watcher dedup state incl. the legacy-table migration (`tests/test_db.py`), and watcher→user routing (`tests/test_routing.py`). **HTTP layer is intentionally not unit-tested.** Verify board changes by running the CLI against the live site, e.g.
+`pytest` — 78 tests, all offline. Cover filter matching, exclude rules (incl. include-vs-exclude scoping of `Job.description`), dedup, prioritization/ranking, age cutoff, parameterized eligibility, `search.toml` loading + multi-watcher profiles + `[boards.*]` options (`tests/test_search_profile.py`), per-watcher dedup state incl. the legacy-table migration (`tests/test_db.py`), watcher→user routing (`tests/test_routing.py`), Telegram post parsing from saved fixtures (`tests/test_telegramjobs.py`), and LinkedIn location/request-budget expansion (`tests/test_linkedin_board.py`). **HTTP layer is intentionally not unit-tested.** Verify board changes by running the CLI against the live site, e.g.
 
 ```bash
 .venv/bin/python -m scraper.cli --boards remoteok --max-pages 1

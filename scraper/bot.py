@@ -87,8 +87,15 @@ def format_jobs_message(
     return chunks
 
 
-def _status_message(app_data: dict, user_id: int, opening: str) -> str:
-    """The shared 'here's what I watch for you' blurb (/start and startup notify)."""
+def _status_message(app_data: dict, user_id: int, lead_line: str) -> str:
+    """Build the "here's what I watch for you" blurb (/start and startup notify).
+
+    Parameters:
+        app_data: the application's ``bot_data``; must carry "settings",
+            "router" and "profiles" (raises KeyError otherwise).
+        user_id: whose watchers to list — routing is per user.
+        lead_line: the first line, e.g. "Bot started.".
+    """
     settings: Settings = app_data["settings"]
     router: Router = app_data["router"]
     watching = (
@@ -97,7 +104,7 @@ def _status_message(app_data: dict, user_id: int, opening: str) -> str:
     )
     times = ", ".join(f"{h:02d}:{m:02d}" for h, m in settings.schedule_times)
     return (
-        f"{opening}\nWatching for you: {watching}\n"
+        f"{lead_line}\nWatching for you: {watching}\n"
         f"Scheduled fetches: {times} ({settings.tz.key})."
     )
 

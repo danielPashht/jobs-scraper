@@ -30,6 +30,12 @@ class Router:
         )
 
     def is_recipient(self, user_id: int, watcher: str) -> bool:
+        """True when `watcher`'s jobs should reach `user_id`.
+
+        A watcher named in the routing table reaches only the users it names; a
+        watcher named nowhere reaches every user the table doesn't claim. With an
+        empty table every user is a recipient of every watcher.
+        """
         mapped = self._watcher_users.get(watcher)
         if mapped:
             return user_id in mapped
@@ -44,6 +50,10 @@ class Router:
     def watchers_for(
         self, profiles: Iterable[SearchProfile], user_id: int
     ) -> list[SearchProfile]:
+        """The subset of `profiles` whose jobs `user_id` receives.
+
+        Drives what `/start` reports and which searches a manual `/fetch` runs.
+        """
         return [p for p in profiles if self.is_recipient(user_id, p.watcher)]
 
     def warn_on_misconfiguration(
