@@ -124,6 +124,7 @@ def main(argv: list[str] | None = None) -> int:
         block_us_states=profile.block_us_states,
         prioritize=profile.prioritize,
         max_age_days=args.max_age_days if args.max_age_days > 0 else None,
+        board_options=profile.board_options,
     )
 
     console = Console()

@@ -130,16 +130,26 @@ DEFAULT_BLOCKED_REGIONS = _US_NAME_TOKENS + _OTHER_INELIGIBLE_TOKENS
 DEFAULT_PRIORITIZE = APAC_HINTS
 
 
-def _haystack(job: Job) -> str:
+def _haystack(job: Job, *, with_description: bool = False) -> str:
     parts = [job.title, " ".join(job.tags), " ".join(job.locations)]
+    if with_description and job.description:
+        parts.append(job.description)
     return " ".join(parts).lower()
 
 
 def matches(job: Job, include: Iterable[str], exclude: Iterable[str]) -> bool:
-    hay = _haystack(job)
-    if any(bad.lower() in hay for bad in exclude):
+    """Keep when an include keyword hits and no exclude keyword does.
+
+    Includes read the ad body too (Telegram posts carry the whole ad, where the
+    role is often only named in the text). Excludes deliberately do NOT: they
+    encode title semantics, and a body mentioning e.g. "работа с senior
+    разработчиками" must not drop an otherwise-junior role.
+    """
+    title_hay = _haystack(job)
+    if any(bad.lower() in title_hay for bad in exclude):
         return False
-    return any(kw.lower() in hay for kw in include)
+    full_hay = _haystack(job, with_description=True)
+    return any(kw.lower() in full_hay for kw in include)
 
 
 def is_eligible(

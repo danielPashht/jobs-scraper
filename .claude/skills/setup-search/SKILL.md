@@ -105,7 +105,18 @@ then only ask what the CV can't tell you. Ask this **questionnaire** (one
 4. **Industry focus** — all industries (default; the project is role-agnostic),
    or add industry keywords so a sector floats up in ranking.
 5. **Boards** — all of `JOBS_BOARDS`, or a subset (e.g. LinkedIn only, which is
-   the best single source for non-engineering roles).
+   the best single source for non-engineering roles). Ask two follow-ups when
+   relevant, both configured via `[boards.<name>]` tables in the profile:
+   - **Language/region**: LinkedIn returns nothing for a non-English query
+     against `location=Worldwide`, so a non-English search needs
+     `[boards.linkedin] locations = ["<country>", ...]`. Prefer a city over an
+     ambiguous country name ("Tbilisi", not "Georgia" — the latter returns the
+     US state).
+   - **Telegram channels**: for markets where roles are posted to Telegram rather
+     than job boards (RU/CIS especially), ask which channels they follow and set
+     `[boards.telegram] channels = [...]`. Verify each is alive first —
+     `curl -s "https://t.me/s/<channel>" | grep -c tgme_widget_message_text` and
+     check the newest `<time datetime>`; plenty of channels are years dead.
 6. **Delivery** — into an existing subscriber's chat (default; with no routing
    table every watcher's feed goes to every subscriber), or their own chat: add
    their user id to `TG_ALLOWED_USER_IDS` and a `JOBS_WATCHER_USERS` entry

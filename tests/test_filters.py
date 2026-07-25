@@ -30,6 +30,20 @@ def make_job(**overrides) -> Job:
     return Job(**base)
 
 
+def test_description_feeds_includes_but_not_excludes():
+    """Free-text ads (Telegram) name the role in the body; excludes stay title-scoped."""
+    job = make_job(
+        title="Правая рука руководителя",
+        tags=[],
+        locations=[],
+        description="Ищем бизнес-аналитика. Работа с senior разработчиками.",
+    )
+    assert filter_jobs([job], include=["бизнес-аналитик"], exclude=["senior"]) == [job]
+    # Same exclude in the title does drop it.
+    titled = make_job(title="Senior бизнес-аналитик", tags=[], locations=[])
+    assert filter_jobs([titled], include=["бизнес-аналитик"], exclude=["senior"]) == []
+
+
 def test_include_match_on_title():
     jobs = [
         make_job(title="Senior SDET"),

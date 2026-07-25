@@ -15,6 +15,10 @@ class Job(BaseModel):
     tags: list[str] = Field(default_factory=list)
     locations: list[str] = Field(default_factory=list)
     remote: bool = False
+    # Full ad text, when the source gives one (Telegram posts are whole ads).
+    # Include-keyword matching reads it; exclude matching deliberately does not
+    # — see scraper.filters.matches.
+    description: str | None = None
     posted_at: datetime | None = None
     scraped_at: datetime = Field(default_factory=datetime.utcnow)
 

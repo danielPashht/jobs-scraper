@@ -214,6 +214,7 @@ async def _run_one_profile(
             blocked_regions=profile.blocked_regions,
             block_us_states=profile.block_us_states,
             prioritize=profile.prioritize,
+            board_options=profile.board_options,
         )
     except Exception as exc:  # noqa: BLE001 — one watcher's failure isn't the others'
         log.exception("pipeline failed for watcher=%s", profile.watcher)

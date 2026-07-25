@@ -58,6 +58,9 @@ The profile has two parts:
 
 - `[search]` — `role` label, `include_keywords`, `exclude_keywords`. Keywords are lowercase substrings matched on title + tags + location; a job is kept if it matches any include and no exclude keyword. They also drive the boards that need a server-side query (LinkedIn ORs them together; web3.career builds its URL slug from the first one).
 - `[eligibility]` — `eligible_regions` (keep on match), `blocked_regions` (drop on match when no eligible signal), `block_us_states` (catch US "City, ST" locations), and `prioritize` (locations floated to the top). Set `enabled = false` to keep everything regardless of region.
+- `[boards.<name>]` (optional) — source-side settings for one board, e.g. `[boards.linkedin] locations = ["Kazakhstan", "Cyprus"]` or `[boards.telegram] channels = ["pm_vacancy"]`. Boards that need none ignore it.
+
+> ⚠️ Region tokens are plain substrings matched against title + tags + location, so avoid words that occur in **titles**: `"remote"` ("EPC Project Manager - Remote"), `"international"` ("BD Manager - International") and `"georgia"` (the US state) will each keep listings your `blocked_regions` were meant to drop.
 
 If there's no `search.toml`, the project runs on its built-in defaults (SDET/QA, Asia-based-open-to-Europe), so it works out of the box.
 
@@ -98,7 +101,8 @@ Ranked by:
 | web3.career | working | Static HTML, paginated `?page=N`, 1.5s inter-page delay. URL slug (`/<role>+remote-jobs`) is derived from your first include keyword; web3-flavored, so it may return little for non-web3 roles. |
 | remoteok.com | working | Public JSON API. Fetches the **full recent feed** and lets the pipeline keyword filter narrow it — role-agnostic. Set `tags` on `RemoteOKBoard` to pull specific tag slices instead. |
 | weworkremotely.com | working | Fetches the full **all-jobs RSS feed** (stdlib `xml.etree`) and lets the keyword filter narrow. Set `categories` on `WeWorkRemotelyBoard` to pull specific category feeds. |
-| linkedin.com | working | Public **guest** jobs endpoint (`jobs-guest/jobs/api/seeMoreJobPostings`), no auth. Requires a `keywords` query, which is built by OR-ing your `include_keywords` — a source-side query, with the pipeline narrowing on top. Throttled hard: 3s inter-page delay + one-shot 20s backoff on HTTP 429. Avoids the authenticated Voyager API on purpose (account-ban risk). |
+| linkedin.com | working | Public **guest** jobs endpoint (`jobs-guest/jobs/api/seeMoreJobPostings`), no auth. Requires a `keywords` query, which is built by OR-ing your `include_keywords` — a source-side query, with the pipeline narrowing on top. Sweeps `[boards.linkedin] locations` (default `["Worldwide"]`); a **non-English query only returns results when pinned to a country**, so Cyrillic searches need e.g. `["Kazakhstan", "Cyprus"]`. Throttled hard: 3s inter-page delay, one-shot 20s backoff on HTTP 429, and a `max_requests` budget (default 12) that logs when it truncates. Avoids the authenticated Voyager API on purpose (account-ban risk). |
+| Telegram channels | working | Public web preview (`t.me/s/<channel>`) — no auth, no API key, no user account. Set `[boards.telegram] channels = [...]`; optional `queries = [...]` also hits Telegram's in-channel search. Posts are free-text ads, so the whole body lands on `Job.description` (include keywords read it, excludes stay title-scoped) and `💰`/`📍`/employer lines are parsed out. Link-only posts fall back to Telegram's **link preview**, which is how e.g. hh.ru roles still get a title, salary and URL. |
 | cryptojobslist.com | stub | Cloudflare challenge blocks httpx. Needs Playwright + stealth — see `scraper/boards/cryptojobslist.py` for the wiring instructions |
 
 ## Tests

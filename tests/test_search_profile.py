@@ -101,6 +101,24 @@ def test_load_profile_reads_watcher_and_boards(tmp_path):
     assert p.display_name == "anastasia · BD"
 
 
+def test_board_options_are_loaded_per_board(tmp_path):
+    f = tmp_path / "p.toml"
+    f.write_text(
+        '[search]\nwatcher = "x"\nboards = ["linkedin", "telegram"]\n'
+        '[boards.linkedin]\nlocations = ["Kazakhstan", "Cyprus"]\n'
+        '[boards.telegram]\nchannels = ["pm_vacancy"]\nmax_requests = 30\n'
+        "[boards.broken]\n"
+    )
+    p = load_profile(f)
+    assert p.board_options["linkedin"]["locations"] == ["Kazakhstan", "Cyprus"]
+    assert p.board_options["telegram"] == {"channels": ["pm_vacancy"], "max_requests": 30}
+    assert p.board_options["broken"] == {}  # empty table is valid, just carries nothing
+
+
+def test_board_options_default_to_empty(tmp_path):
+    assert load_profile(tmp_path / "missing.toml").board_options == {}
+
+
 def test_load_profiles_returns_one_per_path(tmp_path):
     a = _write_watcher_profile(tmp_path, "ann")
     b = _write_watcher_profile(tmp_path, "bob")

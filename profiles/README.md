@@ -29,6 +29,18 @@ Two keys matter for multi-watcher setups (both in `[search]`):
 | `watcher` | Dedup namespace + label. Must be unique; duplicates are skipped on load.   |
 | `boards`  | Board set for this watcher only (e.g. `["linkedin"]`). Empty → `JOBS_BOARDS`. |
 
+Boards that take source-side settings read them from a `[boards.<name>]` table:
+
+```toml
+[boards.linkedin]
+locations = ["Kazakhstan", "Cyprus"]   # a Cyrillic query needs a country
+max_requests = 12                      # 429 guard; logs when it truncates
+
+[boards.telegram]
+channels = ["pm_vacancy", "product_jobs"]
+queries = ["проект"]                   # optional in-channel search on top of the feed
+```
+
 The main user's own profile stays at `../search.toml` (or the built-in defaults
 when that file is absent) and uses the implicit `watcher = "default"`, which is
 also where all pre-multi-watcher dedup history lives.

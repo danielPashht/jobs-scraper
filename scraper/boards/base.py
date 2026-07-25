@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 
 import httpx
 
@@ -26,11 +26,16 @@ class Board(ABC):
         client: httpx.Client | None = None,
         *,
         keywords: Iterable[str] | None = None,
+        options: Mapping[str, object] | None = None,
     ) -> None:
         # The active search's include keywords. Boards that need a server-side
         # query (LinkedIn) or a path slug (web3.career) derive it from these;
         # broad-feed boards ignore them and let the pipeline filter narrow.
         self.query_keywords: tuple[str, ...] = tuple(keywords) if keywords else ()
+        # Source-side settings for this board from the profile's
+        # `[boards.<name>]` table — e.g. LinkedIn's `locations`, Telegram's
+        # `channels`. Boards that need none ignore it.
+        self.options: Mapping[str, object] = options or {}
         self.client = client or httpx.Client(
             headers=DEFAULT_HEADERS,
             follow_redirects=True,

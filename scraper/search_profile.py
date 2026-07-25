@@ -24,7 +24,7 @@ from __future__ import annotations
 import logging
 import tomllib
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from scraper.filters import (
@@ -58,6 +58,10 @@ class SearchProfile:
     watcher: str = DEFAULT_WATCHER
     # Boards this watcher wants. Empty → whatever JOBS_BOARDS / the CLI says.
     boards: tuple[str, ...] = ()
+    # Source-side settings per board, from `[boards.<name>]` tables in the TOML
+    # (e.g. LinkedIn's `locations`, Telegram's `channels`). Boards that need none
+    # ignore it, exactly as broad-feed boards ignore `keywords`.
+    board_options: dict[str, dict] = field(default_factory=dict)
 
     @property
     def display_name(self) -> str:
@@ -72,6 +76,19 @@ def _as_tuple(value: object, default: tuple[str, ...]) -> tuple[str, ...]:
     if isinstance(value, (list, tuple)) and value:
         return tuple(str(v) for v in value)
     return default
+
+
+def _as_board_options(value: object) -> dict[str, dict]:
+    """`[boards.<name>]` tables → {board_name: {option: value}}; non-tables dropped."""
+    if not isinstance(value, dict):
+        return {}
+    out = {}
+    for name, options in value.items():
+        if isinstance(options, dict):
+            out[str(name)] = options
+        else:
+            log.warning("ignoring [boards.%s] — expected a table, got %r", name, type(options))
+    return out
 
 
 def load_profile(path: str | Path | None = None) -> SearchProfile:
@@ -101,6 +118,7 @@ def load_profile(path: str | Path | None = None) -> SearchProfile:
         prioritize=_as_tuple(elig.get("prioritize"), DEFAULT_PRIORITIZE),
         watcher=str(search.get("watcher") or DEFAULT_WATCHER),
         boards=_as_tuple(search.get("boards"), ()),
+        board_options=_as_board_options(data.get("boards")),
     )
 
 

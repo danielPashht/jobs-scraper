@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 
 from scraper.boards import ALL_BOARDS
 from scraper.filters import (
@@ -24,18 +24,22 @@ def scrape(
     max_pages: int,
     *,
     keywords: Iterable[str] = DEFAULT_INCLUDE_KEYWORDS,
+    board_options: Mapping[str, Mapping[str, object]] | None = None,
 ) -> list[Job]:
     # `keywords` is handed to each board so the ones that need a server-side
     # query (LinkedIn) or a path slug (web3.career) can derive it from the role;
     # broad-feed boards ignore it and let the pipeline filter narrow.
+    # `board_options` carries per-board source settings from the profile's
+    # `[boards.<name>]` tables (LinkedIn locations, Telegram channels, ...).
     keywords = list(keywords)
+    board_options = board_options or {}
     out: list[Job] = []
     for name in boards:
         board_cls = ALL_BOARDS.get(name)
         if board_cls is None:
             log.warning("unknown board: %s", name)
             continue
-        board = board_cls(keywords=keywords)
+        board = board_cls(keywords=keywords, options=board_options.get(name, {}))
         try:
             out.extend(board.fetch(max_pages=max_pages))
         except Exception as exc:  # noqa: BLE001 — one bad board shouldn't kill the run
@@ -58,9 +62,10 @@ def run_pipeline(
     block_us_states: bool = True,
     prioritize: Iterable[str] = DEFAULT_PRIORITIZE,
     max_age_days: int | None = 60,
+    board_options: Mapping[str, Mapping[str, object]] | None = None,
 ) -> list[Job]:
     """Full scrape → filter → dedup → rank pipeline. Returns the ranked job list."""
-    raw = scrape(boards, max_pages, keywords=keywords)
+    raw = scrape(boards, max_pages, keywords=keywords, board_options=board_options)
     log.info("scraped %d raw jobs", len(raw))
     filtered = filter_jobs(
         raw,

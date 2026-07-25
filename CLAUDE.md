@@ -22,7 +22,10 @@ scraper/
     web3career.py   # static HTML, paginated; slug derived from keywords
     remoteok.com    # JSON API, broad recent feed (tags optional)
     weworkremotely  # all-jobs RSS feed (categories optional), stdlib xml.etree
-    linkedin.py     # public guest jobs endpoint, boolean query OR-ed from keywords, 429 backoff
+    linkedin.py     # public guest jobs endpoint, boolean query OR-ed from keywords, per-profile
+                    # locations (a Cyrillic query needs a country), 429 backoff + request budget
+    telegramjobs.py # t.me/s/<channel> web preview, no auth. Free-text ads → Job.description;
+                    # link-only posts fall back to Telegram's link preview (hh.ru mirrors)
     cryptojobslist  # STUB — needs Playwright + stealth (Cloudflare)
 search.example.toml # committed template for search.toml (gitignored local profile)
 profiles/           # one profile per extra watched person (*.toml gitignored; README committed)
@@ -39,6 +42,8 @@ logs/bot.log        # bot output (gitignored)
 ## Adding a board
 
 Subclass `scraper.boards.base.Board`, implement `fetch(max_pages: int) -> Iterable[Job]`, register in `scraper/boards/__init__.py::ALL_BOARDS`. The `self.client` is a configured `httpx.Client` with a desktop UA. If a site needs JS/anti-bot bypass, follow the Playwright path sketched in `cryptojobslist.py`.
+
+Boards that need source-side settings read them from `self.options`, which comes from the profile's `[boards.<name>]` table (`SearchProfile.board_options` → `run_pipeline(board_options=)` → `scrape()`): LinkedIn's `locations`/`max_requests`, Telegram's `channels`/`queries`/`max_requests`. Same convention as `keywords` — boards that need none ignore it. Don't add env vars for per-board settings.
 
 Each yielded `Job` runs through the same filter+rank pipeline — boards do **not** need to filter by keyword themselves. Just yield broadly; the pipeline narrows. Boards that need a server-side query receive the active search's include keywords via `Board.__init__(..., keywords=...)` (set `self.query_keywords`): LinkedIn ORs them into its `keywords` param, web3.career slugifies the first one. Broad-feed boards (RemoteOK, WWR) ignore them.
 
@@ -84,9 +89,20 @@ claim, so an empty table = everyone gets everything (original behaviour).
 another person's dedup state. Allowlist is `TG_ALLOWED_USER_IDS` (plural;
 singular still read and merged).
 
-Current watchers: `default` (Daniel, built-in SDET profile, all boards, unrouted)
-and `anastasia` (BD/partnerships, LinkedIn only — `profiles/anastasia.toml`,
-routed to user 499184201).
+Current watchers:
+- `default` — Daniel, built-in SDET profile, all boards, unrouted (goes to him).
+- `anastasia` — BD/partnerships + adjacent (BA/PM/AM/ops), LinkedIn on
+  Worldwide+Cyprus (`profiles/anastasia.toml`), routed to user 499184201.
+- `anastasia-pm` — junior Project Manager / Business Analyst in **Russian**,
+  Telegram channels + LinkedIn pinned to Kazakhstan/Cyprus/Tbilisi/Uzbekistan
+  (`profiles/anastasia-pm.toml`), routed to 499184201.
+
+Both of her profiles exclude Europe (no work authorization) and keep
+worldwide-remote + Cyprus + CIS + APAC. **Region tokens are substrings matched
+against title+tags+location**, so `"remote"`, `"international"` and `"georgia"`
+are deliberately absent from her eligible lists — each appears in job *titles*
+and would override the region blocks (verified: US "EPC Project Manager - Remote"
+and "BD Manager - International" in Portugal both leaked through until removed).
 
 The shipped defaults reproduce the original behaviour: SDET/QA keywords, Asia-based-open-to-Europe eligibility, APAC/remote prioritized. To change the search, edit `search.toml` (or run `/setup-search`) — **don't** hardcode role/region assumptions back into `filters.py`.
 
